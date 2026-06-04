@@ -2,24 +2,64 @@
    Adil Business Solutions — Customers, Suppliers & settings lists
    ===================================================================== */
 
-// ---- Customers --------------------------------------------------------
+// ---- Customers (tabbed, matches Diyar New Customer) -------------------
+const PAYMENT_DAYS = ['Any Day'].concat(Array.from({ length: 31 }, (_, i) => String(i + 1)));
+
 Router.register('customers', (m) => CRUD.page(m, {
   entity: 'Customers', title: 'Customers', singular: 'Customer',
   columns: [
     { key: 'name',            label: 'Name' },
-    { key: 'phone',           label: 'Phone' },
-    { key: 'area',            label: 'Area' },
+    { key: 'customer_type',   label: 'Type' },
+    { key: 'phone',           label: 'Contact' },
+    { key: 'area',            label: 'Area/Zone', ref: 'Areas' },
     { key: 'opening_balance', label: 'Opening Balance', type: 'money' }
   ],
+  tabs: [
+    { label: 'Basic Info' },
+    { label: 'Additional Info' },
+    { label: 'E-Commerce Info', note: 'Send a screenshot of this tab and I’ll add its fields.' },
+    { label: 'Tax Info',        note: 'Send a screenshot of this tab and I’ll add its fields.' }
+  ],
   fields: [
-    { key: 'name',            label: 'Customer name', required: true, wide: true },
-    { key: 'phone',           label: 'Phone' },
-    { key: 'email',           label: 'Email' },
-    { key: 'address',         label: 'Address', type: 'textarea', wide: true },
-    { key: 'area',            label: 'Area / Region' },
-    { key: 'opening_balance', label: 'Opening balance', type: 'number', step: '0.01' },
-    { key: 'credit_limit',    label: 'Credit limit',    type: 'number', step: '0.01' },
-    { key: 'price_list',      label: 'Price list' }
+    // --- Basic Info ---
+    { key: 'area',            label: 'Area/Zone', type: 'select', ref: 'Areas', tab: 'Basic Info', wide: true },
+    { key: 'customer_type',   label: 'Customer Type', type: 'select', tab: 'Basic Info',
+      options: ['Hotel', 'Retail', 'Distributor', 'Residential', 'Whole Sale', 'Cash Receivables', 'Technician'], default: 'Retail' },
+    { key: 'price_list',      label: 'Price Level', type: 'select', tab: 'Basic Info',
+      options: ['Custom', 'MRP', 'Regular', 'Wholesale'], default: 'Regular' },
+    { key: 'customer_code',   label: 'Customer Code', tab: 'Basic Info' },
+    { key: 'name',            label: 'Name', required: true, wide: true, tab: 'Basic Info' },
+    { key: 'address',         label: 'Address', type: 'textarea', wide: true, tab: 'Basic Info' },
+    { key: 'phone',           label: 'Contact', tab: 'Basic Info' },
+    { key: 'opening_balance', label: 'Opening Balance', type: 'number', step: '0.01', tab: 'Basic Info' },
+    { key: 'credit_limit',    label: 'Credit Limit', type: 'number', step: '0.01', default: 0, tab: 'Basic Info' },
+    // --- Additional Info ---
+    { key: 'cnic',                  label: 'CNIC (without dashes)', tab: 'Additional Info', wide: true },
+    { key: 'payment_day',           label: 'Payment Day', type: 'select', options: PAYMENT_DAYS, default: 'Any Day', tab: 'Additional Info' },
+    { key: 'representative_id',     label: 'Representative', type: 'select', ref: 'SalesRepresentatives', tab: 'Additional Info' },
+    { key: 'customer_care_manager', label: 'Customer Care Manager', type: 'select', ref: 'Users', tab: 'Additional Info' },
+    { key: 'photo',                 label: 'Photo URL (optional)', tab: 'Additional Info', wide: true }
+  ]
+}));
+
+// ---- Regions & Areas --------------------------------------------------
+Router.register('areas', (m) => CRUD.page(m, {
+  entity: 'Areas', title: 'Regions & Areas', singular: 'Area',
+  columns: [ { key: 'name', label: 'Area / Zone' }, { key: 'region', label: 'Region' } ],
+  fields: [
+    { key: 'name',   label: 'Area / Zone (e.g. Bajauar — Pashat)', required: true, wide: true },
+    { key: 'region', label: 'Region (optional)' }
+  ]
+}));
+
+// ---- Sales Representatives --------------------------------------------
+Router.register('sales-representatives', (m) => CRUD.page(m, {
+  entity: 'SalesRepresentatives', title: 'Sales Representatives', singular: 'Representative',
+  columns: [ { key: 'name', label: 'Name' }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' } ],
+  fields: [
+    { key: 'name',  label: 'Name', required: true, wide: true },
+    { key: 'phone', label: 'Phone' },
+    { key: 'email', label: 'Email' }
   ]
 }));
 

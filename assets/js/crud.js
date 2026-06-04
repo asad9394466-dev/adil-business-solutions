@@ -110,18 +110,40 @@ const CRUD = {
   // ---- form modal -----------------------------------------------------
   async openForm(cfg, state, render, id) {
     const record = id ? (state.rows.find(r => String(r.id) === String(id)) || {}) : {};
-    const fieldsHtml = (await Promise.all(cfg.fields.map(f => this.fieldHtml(f, record)))).join('');
 
-    const modal = UI.el(`<div class="modal-overlay"><div class="modal">
+    let bodyHtml, large = '';
+    if (cfg.tabs && cfg.tabs.length) {
+      large = ' modal--lg';
+      const tabBar = cfg.tabs.map((t, idx) =>
+        `<button type="button" class="tab-btn${idx === 0 ? ' active' : ''}" data-tab="${idx}">${UI.escape(t.label)}</button>`).join('');
+      const panes = await Promise.all(cfg.tabs.map(async (t, idx) => {
+        const tabFields = cfg.fields.filter(f => (f.tab || cfg.tabs[0].label) === t.label);
+        const inner = tabFields.length
+          ? `<div class="form-grid">${(await Promise.all(tabFields.map(f => this.fieldHtml(f, record)))).join('')}</div>`
+          : `<div class="tab-note">${UI.escape(t.note || 'No fields yet.')}</div>`;
+        return `<div class="tab-pane${idx === 0 ? ' active' : ''}" data-pane="${idx}">${inner}</div>`;
+      }));
+      bodyHtml = `<div class="tab-bar">${tabBar}</div><div>${panes.join('')}</div>`;
+    } else {
+      bodyHtml = `<div class="form-grid">${(await Promise.all(cfg.fields.map(f => this.fieldHtml(f, record)))).join('')}</div>`;
+    }
+
+    const modal = UI.el(`<div class="modal-overlay"><div class="modal${large}">
       <div class="modal-head"><h2>${id ? 'Edit' : 'New'} ${UI.escape(cfg.singular)}</h2>
         <button class="icon-btn modal-close" title="Close">✕</button></div>
-      <form class="modal-body form-grid"></form>
+      <form class="modal-body"></form>
       <div class="modal-foot">
         <button type="button" class="btn modal-close">Cancel</button>
         <button type="button" class="btn btn--primary" id="crud-save">${id ? 'Save changes' : 'Create'}</button>
       </div></div></div>`);
-    modal.querySelector('.modal-body').innerHTML = fieldsHtml;
+    modal.querySelector('.modal-body').innerHTML = bodyHtml;
     document.body.appendChild(modal);
+
+    // tab switching
+    modal.querySelectorAll('.tab-btn').forEach(btn => btn.onclick = () => {
+      modal.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      modal.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === btn.dataset.tab));
+    });
 
     const close = () => modal.remove();
     modal.querySelectorAll('.modal-close').forEach(b => b.onclick = close);

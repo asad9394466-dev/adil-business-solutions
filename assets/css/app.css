@@ -255,6 +255,15 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 .modal-head .icon-btn { width: 32px; height: 32px; font-size: 14px; }
 .modal-body { padding: 20px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); background: #fafbfc; border-radius: 0 0 14px 14px; }
+.modal--lg { max-width: 660px; }
+
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -20px -20px 18px; padding: 0 12px; flex-wrap: wrap; }
+.tab-btn { background: none; border: none; font: inherit; font-weight: 600; color: var(--muted); padding: 12px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+.tab-note { color: var(--muted); font-size: 13px; padding: 18px 4px; }
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
@@ -278,10 +287,61 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 }
 
 /* =====================================================================
-   PRINT (scaffold for invoices in a later phase)
+   PHASE 2 — invoicing
+   ===================================================================== */
+.badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+.badge--ok   { background: rgba(22,163,74,.12);  color: #15803d; }
+.badge--warn { background: rgba(217,119,6,.14);  color: #b45309; }
+.badge--bad  { background: rgba(220,38,38,.12);  color: #b91c1c; }
+
+.line-table th, .line-table td { padding: 8px 10px; }
+.line-table input, .line-table select {
+  font: inherit; width: 100%; padding: 7px 8px; border: 1px solid var(--line);
+  border-radius: 7px; background: #fff;
+}
+.line-table .num input { text-align: right; font-family: "IBM Plex Mono", monospace; }
+.line-table input:focus, .line-table select:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 2px rgba(20,184,166,.15); }
+.line-add { padding: 12px 16px; border-top: 1px solid var(--line); }
+
+.totals-row { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+.totals-box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 18px; }
+.totals-line { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 14px; }
+.totals-line .num { font-family: "IBM Plex Mono", monospace; }
+.totals-grand { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 12px; font-weight: 700; font-size: 16px; }
+.totals-due { color: var(--bad); font-weight: 700; }
+.mini-input { font: inherit; width: 70px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; margin-left: 6px; }
+
+/* invoice document */
+.invoice-doc { padding: 32px 34px; max-width: 820px; }
+.inv-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 18px; border-bottom: 2px solid var(--ink); }
+.inv-co-name { font-size: 20px; font-weight: 700; color: var(--ink); }
+.inv-co-meta { color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.5; }
+.inv-title { text-align: right; }
+.inv-title h2 { margin: 0; font-size: 26px; letter-spacing: 2px; color: var(--accent); }
+.inv-no { font-family: "IBM Plex Mono", monospace; font-weight: 600; margin-top: 2px; }
+.inv-date { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.inv-billto { margin: 20px 0; }
+.inv-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
+.inv-cust-name { font-weight: 600; font-size: 15px; }
+.inv-items { margin-top: 8px; }
+.inv-items th { background: var(--ink); color: #fff; }
+.inv-totals { margin: 18px 0 0 auto; width: 300px; }
+.inv-notes { margin-top: 22px; color: #44546a; font-size: 13px; }
+.inv-payments { margin-top: 24px; }
+
+@media (max-width: 720px) {
+  .totals-row { grid-template-columns: 1fr; }
+  .inv-top { flex-direction: column; }
+  .inv-title { text-align: left; }
+}
+
+/* =====================================================================
+   PRINT
    ===================================================================== */
 @media print {
-  .sidebar, .topbar, .scrim, .abs-toasts { display: none !important; }
+  .sidebar, .topbar, .scrim, .abs-toasts, .no-print, .container-fluid { display: none !important; }
   .app-main, .content { padding: 0; max-width: none; }
   body { background: #fff; }
+  .invoice-doc { box-shadow: none; border: none; max-width: none; padding: 0; margin: 0; }
+  .card { box-shadow: none; border: none; }
 }

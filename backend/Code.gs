@@ -23,8 +23,10 @@ var SCHEMA = {
   Brands:         ['id','name','status','created_at'],
   UOM:            ['id','name','abbreviation','status','created_at'],
   TaxTypes:       ['id','name','rate_percent','status','created_at'],
+  Areas:          ['id','name','region','status','created_at'],
+  SalesRepresentatives: ['id','name','phone','email','status','created_at'],
   Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at'],
-  Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at'],
+  Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
   Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at'],
   Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at'],
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
@@ -89,6 +91,32 @@ function setup() {
 }
 
 // =====================================================================
+//  MIGRATION — run once after updating the script with new fields/tables.
+//  Creates any new tabs and appends any new columns to existing tabs,
+//  without touching existing data.
+// =====================================================================
+function migrate() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SCHEMA).forEach(function (name) {
+    var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+    var want = SCHEMA[name];
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1, 1, 1, want.length).setValues([want]);
+      sh.getRange(1, 1, 1, want.length).setFontWeight('bold');
+      sh.setFrozenRows(1);
+      return;
+    }
+    var have = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    var missing = want.filter(function (h) { return have.indexOf(h) === -1; });
+    if (missing.length) {
+      sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]);
+      sh.getRange(1, have.length + 1, 1, missing.length).setFontWeight('bold');
+    }
+  });
+  Logger.log('Migration complete: tabs and columns are in sync with SCHEMA.');
+}
+
+// =====================================================================
 //  WEB APP ENTRY POINTS
 // =====================================================================
 function doGet(e)  { return handle_(e); }
@@ -118,6 +146,11 @@ function handle_(e) {
       case 'delete':     return out_({ ok: true, data: del_(p.entity, p.id) });
       case 'nextNumber': return out_({ ok: true, data: { number: nextNumber_(p.name) } });
       case 'dashboard':  return out_({ ok: true, data: dashboard_() });
+      case 'createInvoice': return out_({ ok: true, data: createInvoice_(p) });
+      case 'updateInvoice': return out_({ ok: true, data: updateInvoice_(p) });
+      case 'invoiceDetail': return out_({ ok: true, data: invoiceDetail_(p.id) });
+      case 'recordPayment': return out_({ ok: true, data: recordPayment_(p) });
+      case 'deleteInvoice': return out_({ ok: true, data: deleteInvoice_(p.id) });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -256,23 +289,23 @@ function safeCell_(v) {
 function nextNumber_(name) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  try {
-    var sh = sheet_('Counters');
-    var values = sh.getDataRange().getValues();
-    for (var i = 1; i < values.length; i++) {
-      if (String(values[i][0]) === String(name)) {
-        var next = Number(values[i][1] || 0) + 1;
-        sh.getRange(i + 1, 2).setValue(next);
-        var prefix = values[i][2] || '';
-        return prefix + String(next).padStart(5, '0');
-      }
+  try { return incrementCounter_(name); }
+  finally { lock.releaseLock(); }
+}
+
+// no-lock version, used inside operations that already hold the lock
+function incrementCounter_(name) {
+  var sh = sheet_('Counters');
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(name)) {
+      var next = Number(values[i][1] || 0) + 1;
+      sh.getRange(i + 1, 2).setValue(next);
+      return (values[i][2] || '') + String(next).padStart(5, '0');
     }
-    // create counter on the fly
-    sh.appendRow([name, 1, '']);
-    return String(1).padStart(5, '0');
-  } finally {
-    lock.releaseLock();
   }
+  sh.appendRow([name, 1, '']);
+  return String(1).padStart(5, '0');
 }
 
 // =====================================================================
@@ -292,6 +325,115 @@ function dashboard_() {
     todays_sales: todays,
     low_stock_count: 0 // populated once live stock tracking lands (Phase 3)
   };
+}
+
+// =====================================================================
+//  INVOICES
+// =====================================================================
+function userFromToken_(token) {
+  return token ? (CacheService.getScriptCache().get(token) || '') : '';
+}
+
+function deleteWhere_(entity, field, value) {
+  var sh = sheet_(entity);
+  var matches = rows_(entity).filter(function (r) { return String(r[field]) === String(value); });
+  matches.map(function (r) { return r.__row; })
+         .sort(function (a, b) { return b - a; })   // bottom-up so row indexes stay valid
+         .forEach(function (row) { sh.deleteRow(row); });
+}
+
+function writeInvoiceLines_(invId, invoiceNo, lines, dateStr) {
+  (lines || []).forEach(function (ln) {
+    create_('InvoiceItems', {
+      invoice_id: invId, item_id: ln.item_id || '', description: ln.description || '',
+      qty: Number(ln.qty || 0), unit_price: Number(ln.unit_price || 0),
+      discount: ln.discount || '', line_total: Number(ln.line_total || 0)
+    });
+    if (ln.item_id) {
+      create_('StockMovements', {
+        date: dateStr || new Date().toISOString().slice(0, 10),
+        item_id: ln.item_id, type: 'out', qty: Number(ln.qty || 0),
+        reference_type: 'invoice', reference_id: invId, notes: invoiceNo
+      });
+    }
+  });
+}
+
+function createInvoice_(p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var invoiceNo = incrementCounter_('invoice');
+    var id = newId_();
+    var total = Number(d.total || 0);
+    var rec = {
+      id: id, invoice_no: invoiceNo, date: d.date || new Date().toISOString().slice(0, 10),
+      customer_id: d.customer_id || '', subtotal: Number(d.subtotal || 0), discount: Number(d.discount || 0),
+      tax: Number(d.tax || 0), total: total, paid: 0, balance: total,
+      status: (total <= 0 ? 'paid' : 'unpaid'), notes: d.notes || '',
+      created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+    };
+    sheet_('Invoices').appendRow(SCHEMA.Invoices.map(function (h) { return safeCell_(rec[h]); }));
+    writeInvoiceLines_(id, invoiceNo, d.lines, d.date);
+    return { id: id, invoice_no: invoiceNo };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateInvoice_(p) {
+  var id = p.id, d = p.data || {};
+  var inv = rows_('Invoices').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!inv) throw new Error('Invoice not found.');
+  deleteWhere_('InvoiceItems', 'invoice_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  var total = Number(d.total || 0);
+  var paid = Number(inv.paid || 0);
+  update_('Invoices', id, {
+    date: d.date || inv.date, customer_id: d.customer_id || '', subtotal: Number(d.subtotal || 0),
+    discount: Number(d.discount || 0), tax: Number(d.tax || 0), total: total,
+    balance: total - paid, status: paid >= total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid'),
+    notes: d.notes || ''
+  });
+  writeInvoiceLines_(id, inv.invoice_no, d.lines, d.date || inv.date);
+  return { id: id, invoice_no: inv.invoice_no };
+}
+
+function invoiceDetail_(id) {
+  var inv = get_('Invoices', id);
+  if (!inv) throw new Error('Invoice not found.');
+  var items = rows_('InvoiceItems').filter(function (r) { return String(r.invoice_id) === String(id); }).map(strip_);
+  var payments = rows_('Payments').filter(function (r) { return String(r.invoice_id) === String(id); }).map(strip_);
+  var customer = inv.customer_id ? get_('Customers', inv.customer_id) : null;
+  return { invoice: inv, items: items, payments: payments, customer: customer };
+}
+
+function recordPayment_(p) {
+  var d = p.data || {};
+  var inv = rows_('Invoices').filter(function (r) { return String(r.id) === String(d.invoice_id); })[0];
+  if (!inv) throw new Error('Invoice not found.');
+  create_('Payments', {
+    date: d.date || new Date().toISOString().slice(0, 10),
+    customer_id: inv.customer_id, invoice_id: d.invoice_id,
+    amount: Number(d.amount || 0), method: d.method || '', reference: d.reference || '', notes: d.notes || ''
+  });
+  var paid = rows_('Payments')
+    .filter(function (r) { return String(r.invoice_id) === String(d.invoice_id); })
+    .reduce(function (s, r) { return s + Number(r.amount || 0); }, 0);
+  var total = Number(inv.total || 0);
+  update_('Invoices', d.invoice_id, {
+    paid: paid, balance: total - paid,
+    status: paid >= total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+  });
+  return get_('Invoices', d.invoice_id);
+}
+
+function deleteInvoice_(id) {
+  update_('Invoices', id, { status: 'deleted' });
+  deleteWhere_('InvoiceItems', 'invoice_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  return { id: id, deleted: true };
 }
 
 // =====================================================================

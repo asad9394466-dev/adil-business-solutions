@@ -107,6 +107,7 @@ const App = {
     }));
 
     Router.init("#content");
+    if (window.CompanySettings) CompanySettings.loadCompany();
   },
 
   buildNav(menu) {

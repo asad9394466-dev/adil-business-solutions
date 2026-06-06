@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "1.5 (Phase 2)",
+  VERSION: "1.6 (Phase 2)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -105,5 +105,5 @@ window.ABS_CONFIG = {
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "stores", "warehouses", "price-lists", "users", "company-information"]
 };

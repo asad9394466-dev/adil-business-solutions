@@ -203,7 +203,7 @@ const CRUD = {
       }).join('');
       input = `<select name="${f.key}">${optsHtml}</select>`;
     } else {
-      const t = f.type === 'number' ? 'number' : (f.type === 'date' ? 'date' : 'text');
+      const t = f.type === 'number' ? 'number' : (f.type === 'date' ? 'date' : (f.type === 'password' ? 'password' : 'text'));
       input = `<input type="${t}" name="${f.key}"${f.step ? ` step="${f.step}"` : ''} value="${UI.escape(v)}">`;
     }
     return `<label class="field${wide}"><span class="field-label">${UI.escape(f.label)}${req}</span>${input}</label>`;

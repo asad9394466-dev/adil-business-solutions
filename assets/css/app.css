@@ -333,6 +333,7 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 .inv-items th { background: var(--ink); color: #fff; }
 .inv-totals { margin: 18px 0 0 auto; width: 300px; }
 .inv-notes { margin-top: 22px; color: #44546a; font-size: 13px; }
+.inv-terms { margin-top: 16px; color: #67768a; font-size: 12px; border-top: 1px dashed var(--line); padding-top: 10px; white-space: pre-wrap; }
 .inv-payments { margin-top: 24px; }
 
 @media (max-width: 720px) {

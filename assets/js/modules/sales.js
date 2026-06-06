@@ -22,11 +22,11 @@ const Sales = {
     return c ? c.name : (fallback || '—');
   },
 
-  // overall discount: type is "Discount Percent" or "Discount Amount"
+  // overall discount: type is "Discount Percent" or "Discount Value"
   overallDiscount(base, type, val) {
     const num = parseFloat(val);
     if (isNaN(num)) return 0;
-    return type === 'Discount Amount' ? num : base * (num / 100);
+    return type === 'Discount Value' ? num : base * (num / 100);
   },
 
   // per-line discount: "5%" => percent of gross, plain number => amount per unit
@@ -69,7 +69,7 @@ function docCustomer(doc, r) {
   return doc.key === 'receipt' ? (r.customer_name || Sales.customerName(r.customer_id, 'Walk-in Customer')) : Sales.customerName(r.customer_id);
 }
 
-const ORDER_TYPES = ['Local', 'Online', 'Export'];
+const ORDER_TYPES = ['Local', 'Mobile', 'Web', 'App'];
 
 /* =====================================================================
    LIST
@@ -187,7 +187,7 @@ const SalesEditor = {
       sales_rep: rec.sales_rep || '',
       order_type: rec.order_type || 'Local',
       notes: rec.notes || '',
-      discType: rec.discount ? 'Discount Amount' : 'Discount Percent',
+      discType: rec.discount ? 'Discount Value' : 'Discount Percent',
       discVal: rec.discount ? String(rec.discount) : '',
       lines: (exItems && exItems.length)
         ? exItems.map(it => ({ item_id: it.item_id, description: it.description, qty: it.qty, unit_price: it.unit_price, discount: it.discount, line_total: it.line_total }))
@@ -245,7 +245,7 @@ const SalesEditor = {
         <div class="totals-box">
           <div class="totals-line"><span>Subtotal</span><span id="t-sub" class="num">0.00</span></div>
           <div class="totals-line">
-            <span><select id="s-disc-type" class="mini-select"><option>Discount Percent</option><option>Discount Amount</option></select>
+            <span><select id="s-disc-type" class="mini-select"><option>Discount Percent</option><option>Discount Value</option></select>
               <input id="s-disc-val" class="mini-input" value="${UI.escape(state.discVal)}"></span>
             <span id="t-disc" class="num">0.00</span>
           </div>
@@ -256,7 +256,7 @@ const SalesEditor = {
         </div>
       </div>`;
 
-    if (state.discType === 'Discount Amount') mount.querySelector('#s-disc-type').value = 'Discount Amount';
+    if (state.discType === 'Discount Value') mount.querySelector('#s-disc-type').value = 'Discount Value';
 
     const linesEl = mount.querySelector('#s-lines');
     const itemOptions = (sel) => '<option value="">— item —</option>' +
@@ -439,7 +439,7 @@ async function buildSalesDetail(mount, doc, id) {
       <div class="inv-top">
         <div class="inv-company">
           <div class="inv-co-name">${UI.escape(co.name)}</div>
-          <div class="inv-co-meta">${UI.escape(co.address || '')}<br>${UI.escape(co.phone || '')}${co.email ? ' · ' + UI.escape(co.email) : ''}</div>
+          <div class="inv-co-meta">${UI.escape(co.address || '')}<br>${UI.escape(co.phone || '')}${co.mobile ? ' · ' + UI.escape(co.mobile) : ''}${co.email ? ' · ' + UI.escape(co.email) : ''}</div>
         </div>
         <div class="inv-title">
           <h2>${UI.escape(doc.docTitle)}</h2>
@@ -474,6 +474,7 @@ async function buildSalesDetail(mount, doc, id) {
       </div>
 
       ${rec.notes ? `<div class="inv-notes"><div class="inv-label">NOTES</div>${UI.escape(rec.notes)}</div>` : ''}
+      ${co.terms ? `<div class="inv-terms"><div class="inv-label">TERMS &amp; CONDITIONS</div>${UI.escape(co.terms)}</div>` : ''}
 
       ${payments.length ? `<div class="inv-payments no-print">
         <div class="inv-label">PAYMENTS</div>

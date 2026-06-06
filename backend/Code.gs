@@ -25,6 +25,9 @@ var SCHEMA = {
   TaxTypes:       ['id','name','rate_percent','status','created_at'],
   Areas:          ['id','name','region','status','created_at'],
   SalesRepresentatives: ['id','name','phone','email','status','created_at'],
+  Stores:         ['id','store_name','region_id','description','ecommerce_eligibility','status','created_at'],
+  Warehouses:     ['id','warehouse_name','description','status','created_at'],
+  PriceLists:     ['id','list_date','list_type','list_image','status','created_at'],
   Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at'],
   Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
   Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at'],
@@ -177,6 +180,8 @@ function handle_(e) {
       case 'salesReceiptDetail': return out_({ ok: true, data: salesReceiptDetail_(p.id) });
       case 'deleteSalesReceipt': return out_({ ok: true, data: deleteSalesReceipt_(p.id) });
       case 'customerBalance': return out_({ ok: true, data: { balance: customerBalance_(p.customer_id, p.exclude_id) } });
+      case 'getSettings': return out_({ ok: true, data: getSettings_() });
+      case 'saveSettings': return out_({ ok: true, data: saveSettings_(p.data) });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -265,6 +270,9 @@ function get_(entity, id) {
 }
 
 function create_(entity, data) {
+  if (entity === 'Users' && data && data.password) {
+    data.password_hash = hash_(data.username || '', data.password);
+  }
   var sh = sheet_(entity);
   var headers = SCHEMA[entity];
   var rec = {};
@@ -277,6 +285,11 @@ function create_(entity, data) {
 }
 
 function update_(entity, id, data) {
+  if (entity === 'Users' && data && data.password) {
+    var uname = data.username;
+    if (!uname) { var ex = rows_('Users').filter(function (r) { return String(r.id) === String(id); })[0]; uname = ex ? ex.username : ''; }
+    data.password_hash = hash_(uname, data.password);
+  }
   var sh = sheet_(entity);
   var headers = SCHEMA[entity];
   var match = rows_(entity).filter(function (x) { return String(x.id) === String(id); })[0];
@@ -554,6 +567,27 @@ function deleteSalesReceipt_(id) {
   deleteWhere_('SalesReceiptItems', 'receipt_id', id);
   deleteWhere_('StockMovements', 'reference_id', id);
   return { id: id, deleted: true };
+}
+
+// =====================================================================
+//  SETTINGS (key/value)
+// =====================================================================
+function getSettings_() {
+  var o = {};
+  rows_('Settings').forEach(function (r) { o[r.key] = r.value; });
+  return o;
+}
+
+function saveSettings_(data) {
+  var sh = sheet_('Settings');
+  var values = sh.getDataRange().getValues();
+  var idx = {};
+  for (var i = 1; i < values.length; i++) idx[String(values[i][0])] = i + 1;
+  Object.keys(data || {}).forEach(function (k) {
+    if (idx[k]) sh.getRange(idx[k], 2).setValue(safeCell_(data[k]));
+    else sh.appendRow([k, safeCell_(data[k])]);
+  });
+  return getSettings_();
 }
 
 // =====================================================================

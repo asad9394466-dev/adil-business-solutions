@@ -28,8 +28,10 @@ var SCHEMA = {
   Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at'],
   Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
   Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at'],
-  Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at'],
+  Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at','due_date','reference_no'],
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
+  SalesReceipts:     ['id','receipt_no','date','customer_id','customer_name','subtotal','discount','tax','total','paid','balance','status','notes','sales_rep','order_type','created_by','created_at'],
+  SalesReceiptItems: ['id','receipt_id','item_id','description','qty','unit_price','discount','line_total'],
   Payments:       ['id','date','customer_id','invoice_id','amount','method','reference','notes','created_at'],
   StockMovements: ['id','date','item_id','type','qty','reference_type','reference_id','notes']
 };
@@ -113,7 +115,26 @@ function migrate() {
       sh.getRange(1, have.length + 1, 1, missing.length).setFontWeight('bold');
     }
   });
+  // ensure counters exist with the right prefixes (matches Diyar numbering)
+  upsertCounter_('invoice', 'INV-1-');
+  upsertCounter_('sales_receipt', 'SAL-1-');
+  upsertCounter_('quotation', 'QUO-1-');
+  upsertCounter_('sales_order', 'SO-1-');
+
   Logger.log('Migration complete: tabs and columns are in sync with SCHEMA.');
+}
+
+// set/refresh a counter's prefix without resetting its running value
+function upsertCounter_(name, prefix) {
+  var sh = sheet_('Counters');
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(name)) {
+      sh.getRange(i + 1, 3).setValue(prefix);
+      return;
+    }
+  }
+  sh.appendRow([name, 0, prefix]);
 }
 
 // =====================================================================
@@ -151,6 +172,11 @@ function handle_(e) {
       case 'invoiceDetail': return out_({ ok: true, data: invoiceDetail_(p.id) });
       case 'recordPayment': return out_({ ok: true, data: recordPayment_(p) });
       case 'deleteInvoice': return out_({ ok: true, data: deleteInvoice_(p.id) });
+      case 'createSalesReceipt': return out_({ ok: true, data: createSalesReceipt_(p) });
+      case 'updateSalesReceipt': return out_({ ok: true, data: updateSalesReceipt_(p) });
+      case 'salesReceiptDetail': return out_({ ok: true, data: salesReceiptDetail_(p.id) });
+      case 'deleteSalesReceipt': return out_({ ok: true, data: deleteSalesReceipt_(p.id) });
+      case 'customerBalance': return out_({ ok: true, data: { balance: customerBalance_(p.customer_id, p.exclude_id) } });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -315,14 +341,17 @@ function dashboard_() {
   var items = list_('Items', {});
   var customers = list_('Customers', {});
   var invoices = list_('Invoices', {});
+  var receipts = list_('SalesReceipts', {});
   var today = new Date().toISOString().slice(0, 10);
-  var todays = invoices.filter(function (i) { return String(i.date).slice(0, 10) === today; })
-                       .reduce(function (sum, i) { return sum + Number(i.total || 0); }, 0);
+  var sum = function (arr) {
+    return arr.filter(function (i) { return String(i.date).slice(0, 10) === today; })
+              .reduce(function (s, i) { return s + Number(i.total || 0); }, 0);
+  };
   return {
     items_count: items.length,
     customers_count: customers.length,
     invoices_count: invoices.length,
-    todays_sales: todays,
+    todays_sales: sum(invoices) + sum(receipts),
     low_stock_count: 0 // populated once live stock tracking lands (Phase 3)
   };
 }
@@ -369,6 +398,7 @@ function createInvoice_(p) {
     var total = Number(d.total || 0);
     var rec = {
       id: id, invoice_no: invoiceNo, date: d.date || new Date().toISOString().slice(0, 10),
+      due_date: d.due_date || '', reference_no: d.reference_no || '',
       customer_id: d.customer_id || '', subtotal: Number(d.subtotal || 0), discount: Number(d.discount || 0),
       tax: Number(d.tax || 0), total: total, paid: 0, balance: total,
       status: (total <= 0 ? 'paid' : 'unpaid'), notes: d.notes || '',
@@ -393,6 +423,7 @@ function updateInvoice_(p) {
   update_('Invoices', id, {
     date: d.date || inv.date, customer_id: d.customer_id || '', subtotal: Number(d.subtotal || 0),
     discount: Number(d.discount || 0), tax: Number(d.tax || 0), total: total,
+    due_date: d.due_date || inv.due_date || '', reference_no: d.reference_no || '',
     balance: total - paid, status: paid >= total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid'),
     notes: d.notes || ''
   });
@@ -432,6 +463,95 @@ function recordPayment_(p) {
 function deleteInvoice_(id) {
   update_('Invoices', id, { status: 'deleted' });
   deleteWhere_('InvoiceItems', 'invoice_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  return { id: id, deleted: true };
+}
+
+// outstanding balance across a customer's invoices (optionally excluding one)
+function customerBalance_(customerId, excludeId) {
+  if (!customerId) return 0;
+  return rows_('Invoices')
+    .filter(function (r) {
+      return String(r.customer_id) === String(customerId)
+          && String(r.status) !== 'deleted'
+          && String(r.id) !== String(excludeId || '');
+    })
+    .reduce(function (s, r) { return s + Number(r.balance || 0); }, 0);
+}
+
+// =====================================================================
+//  SALES RECEIPTS  (walk-in, paid in full)
+// =====================================================================
+function writeReceiptLines_(rId, receiptNo, lines, dateStr) {
+  (lines || []).forEach(function (ln) {
+    create_('SalesReceiptItems', {
+      receipt_id: rId, item_id: ln.item_id || '', description: ln.description || '',
+      qty: Number(ln.qty || 0), unit_price: Number(ln.unit_price || 0),
+      discount: ln.discount || '', line_total: Number(ln.line_total || 0)
+    });
+    if (ln.item_id) {
+      create_('StockMovements', {
+        date: dateStr || new Date().toISOString().slice(0, 10),
+        item_id: ln.item_id, type: 'out', qty: Number(ln.qty || 0),
+        reference_type: 'receipt', reference_id: rId, notes: receiptNo
+      });
+    }
+  });
+}
+
+function createSalesReceipt_(p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var receiptNo = incrementCounter_('sales_receipt');
+    var id = newId_();
+    var total = Number(d.total || 0);
+    var rec = {
+      id: id, receipt_no: receiptNo, date: d.date || new Date().toISOString().slice(0, 10),
+      customer_id: d.customer_id || '', customer_name: d.customer_name || 'Walk-in Customer',
+      subtotal: Number(d.subtotal || 0), discount: Number(d.discount || 0), tax: Number(d.tax || 0),
+      total: total, paid: total, balance: 0, status: 'paid', notes: d.notes || '',
+      sales_rep: d.sales_rep || '', order_type: d.order_type || 'Local',
+      created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+    };
+    sheet_('SalesReceipts').appendRow(SCHEMA.SalesReceipts.map(function (h) { return safeCell_(rec[h]); }));
+    writeReceiptLines_(id, receiptNo, d.lines, d.date);
+    return { id: id, receipt_no: receiptNo };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateSalesReceipt_(p) {
+  var id = p.id, d = p.data || {};
+  var r = rows_('SalesReceipts').filter(function (x) { return String(x.id) === String(id); })[0];
+  if (!r) throw new Error('Sales receipt not found.');
+  deleteWhere_('SalesReceiptItems', 'receipt_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  var total = Number(d.total || 0);
+  update_('SalesReceipts', id, {
+    date: d.date || r.date, customer_id: d.customer_id || '',
+    customer_name: d.customer_name || 'Walk-in Customer',
+    subtotal: Number(d.subtotal || 0), discount: Number(d.discount || 0), tax: Number(d.tax || 0),
+    total: total, paid: total, balance: 0, status: 'paid', notes: d.notes || '',
+    sales_rep: d.sales_rep || '', order_type: d.order_type || 'Local'
+  });
+  writeReceiptLines_(id, r.receipt_no, d.lines, d.date || r.date);
+  return { id: id, receipt_no: r.receipt_no };
+}
+
+function salesReceiptDetail_(id) {
+  var r = get_('SalesReceipts', id);
+  if (!r) throw new Error('Sales receipt not found.');
+  var items = rows_('SalesReceiptItems').filter(function (x) { return String(x.receipt_id) === String(id); }).map(strip_);
+  var customer = r.customer_id ? get_('Customers', r.customer_id) : null;
+  return { receipt: r, items: items, customer: customer };
+}
+
+function deleteSalesReceipt_(id) {
+  update_('SalesReceipts', id, { status: 'deleted' });
+  deleteWhere_('SalesReceiptItems', 'receipt_id', id);
   deleteWhere_('StockMovements', 'reference_id', id);
   return { id: id, deleted: true };
 }

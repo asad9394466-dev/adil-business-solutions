@@ -544,6 +544,43 @@ Router.register('new-sales-receipt',   (m) => SalesEditor.open(m, DOC.receipt, n
 Router.register('edit-sales-receipt',  (m, p) => SalesEditor.open(m, DOC.receipt, p.id));
 Router.register('sales-receipt-detail',(m, p) => buildSalesDetail(m, DOC.receipt, p.id));
 
+async function buildAllTransactions(mount) {
+  UI.loading(true);
+  let rows;
+  try { rows = await API.call('allTransactions'); }
+  catch (e) { UI.loading(false); salesErr(mount, 'transactions', e.message); return; }
+  UI.loading(false);
+
+  mount.innerHTML = `
+    <div class="page-head"><h1>All Transactions</h1><span class="page-sub" id="at-count"></span>
+      <div class="page-actions"><input id="at-search" class="search-input" placeholder="Search transactions…"></div>
+    </div>
+    <div class="card no-pad"><div class="table-wrap" id="at-table"></div></div>`;
+
+  const detailRoute = (d) => d === 'receipt' ? 'sales-receipt-detail' : 'invoice-detail';
+  const draw = (list) => {
+    document.getElementById('at-count').textContent = `${list.length} transaction${list.length === 1 ? '' : 's'}`;
+    const t = document.getElementById('at-table');
+    if (!list.length) { t.innerHTML = `<div class="empty">${UI.icon('file-text')}<h3>No transactions yet</h3><p>Invoices and sales receipts appear here as you create them.</p></div>`; return; }
+    t.innerHTML = `<table class="data-table"><thead><tr>
+        <th>Date</th><th>Name</th><th>Type</th><th class="num">Amount</th><th class="num">Balance</th><th class="actions"></th>
+      </tr></thead><tbody>${list.map(r => `
+        <tr>
+          <td>${UI.escape(UI.date(r.date))}</td>
+          <td>${UI.escape(r.name || '—')}</td>
+          <td><strong>${UI.escape(r.number)}</strong> <span class="muted">${UI.escape(r.type)}</span></td>
+          <td class="num">${UI.money(r.amount)}</td>
+          <td class="num">${r.doc === 'invoice' ? UI.money(r.balance) : '—'}</td>
+          <td class="actions"><button class="link-btn" data-view="${UI.escape(r.id)}" data-doc="${UI.escape(r.doc)}">View</button></td>
+        </tr>`).join('')}</tbody></table>`;
+    t.querySelectorAll('[data-view]').forEach(b => b.onclick = () => Router.go(detailRoute(b.dataset.doc) + '?id=' + b.dataset.view));
+  };
+  draw(rows);
+  const s = mount.querySelector('#at-search');
+  s.oninput = () => { const q = s.value.trim().toLowerCase(); draw(!q ? rows : rows.filter(r => ((r.number || '') + ' ' + (r.name || '') + ' ' + (r.type || '')).toLowerCase().indexOf(q) !== -1)); };
+}
+Router.register('all-transactions', buildAllTransactions);
+
 window.Sales = Sales;
 window.SalesEditor = SalesEditor;
 window.PaymentModal = PaymentModal;

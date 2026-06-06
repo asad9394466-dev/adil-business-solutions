@@ -182,6 +182,7 @@ function handle_(e) {
       case 'customerBalance': return out_({ ok: true, data: { balance: customerBalance_(p.customer_id, p.exclude_id) } });
       case 'getSettings': return out_({ ok: true, data: getSettings_() });
       case 'saveSettings': return out_({ ok: true, data: saveSettings_(p.data) });
+      case 'allTransactions': return out_({ ok: true, data: allTransactions_() });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -567,6 +568,25 @@ function deleteSalesReceipt_(id) {
   deleteWhere_('SalesReceiptItems', 'receipt_id', id);
   deleteWhere_('StockMovements', 'reference_id', id);
   return { id: id, deleted: true };
+}
+
+// unified ledger of all transactions (newest first)
+function allTransactions_() {
+  var custs = {};
+  list_('Customers', {}).forEach(function (c) { custs[String(c.id)] = c.name; });
+  var out = [];
+  list_('Invoices', {}).forEach(function (r) {
+    out.push({ date: r.date, name: custs[String(r.customer_id)] || '', type: 'Invoice',
+      number: r.invoice_no, amount: Number(r.total || 0), balance: Number(r.balance || 0),
+      status: r.status, id: r.id, doc: 'invoice' });
+  });
+  list_('SalesReceipts', {}).forEach(function (r) {
+    out.push({ date: r.date, name: r.customer_name || custs[String(r.customer_id)] || 'Walk-in Customer',
+      type: 'Sales Receipt', number: r.receipt_no, amount: Number(r.total || 0), balance: 0,
+      status: r.status, id: r.id, doc: 'receipt' });
+  });
+  out.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number)); });
+  return out;
 }
 
 // =====================================================================

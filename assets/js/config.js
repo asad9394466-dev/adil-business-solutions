@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "1.4 (Phase 2)",
+  VERSION: "1.5 (Phase 2)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -38,55 +38,68 @@ window.ABS_CONFIG = {
   MENU: [
     { label: "Dashboard", icon: "home", route: "home" },
 
+    { label: "Settings", icon: "settings", children: [
+      { label: "Categories", route: "categories" },
+      { label: "Brands", route: "brands" },
+      { label: "Stores", route: "stores" },
+      { label: "Warehouses", route: "warehouses" },
+      { label: "Regions & Areas", route: "areas" },
+      { label: "Price Lists", route: "price-lists" },
+      { label: "Templates", route: "templates" },
+      { label: "UOM", route: "uom" },
+      { label: "Sales Representatives", route: "sales-representatives" },
+      { label: "Users", route: "users" },
+      { label: "Company Information", route: "company-information" }
+    ]},
+
     { label: "Items", icon: "box", children: [
       { label: "Item List", route: "items" },
+      { label: "Item Search", route: "item-search" },
       { label: "New Item", route: "new-item" },
       { label: "Inventory Alert", route: "inventory-alert" },
       { label: "Expired Inventory", route: "expired-inventory" },
       { label: "Price Manager", route: "price-manager" }
     ]},
 
-    { label: "Customers", icon: "users", route: "customers" },
-    { label: "Suppliers", icon: "truck", route: "suppliers" },
-
-    { label: "Sales", icon: "file-text", children: [
-      { label: "Invoices", route: "invoices" },
-      { label: "New Invoice", route: "new-invoice" },
-      { label: "Quotations", route: "quotations" },
-      { label: "Sales Orders", route: "sales-orders" },
-      { label: "Sales Receipts", route: "sales-receipts" },
-      { label: "New Sales Receipt", route: "new-sales-receipt" },
-      { label: "Credit Memos / Refunds", route: "credit-memos" }
+    { label: "E-Commerce Info", icon: "cart", children: [
+      { label: "Slideshow", route: "slideshow" },
+      { label: "Campaign Manager", route: "campaign-manager" },
+      { label: "Notification Manager", route: "notification-manager" }
     ]},
 
-    { label: "Purchases", icon: "cart", children: [
-      { label: "Purchase Orders", route: "purchase-orders" },
+    { label: "Accounts", icon: "layers", children: [
+      { label: "Chart of Accounts", route: "accounts" },
+      { label: "General Journal", route: "general-journal" },
+      { label: "Receive Payments", route: "receive-payments" },
+      { label: "View Payments", route: "view-payments" },
+      { label: "Pay Bills", route: "pay-bills" },
+      { label: "Transfer Funds", route: "transfer-funds" }
+    ]},
+
+    { label: "Transactions", icon: "file-text", children: [
+      { label: "All Transactions", route: "all-transactions" },
+      { label: "Purchase Order", route: "purchase-orders" },
       { label: "Bills", route: "bills" },
-      { label: "Expenses", route: "expenses" }
-    ]},
-
-    { label: "Inventory", icon: "layers", children: [
-      { label: "Stock Adjustments", route: "inventory-adjustments" },
-      { label: "Stock Transfers", route: "inventory-transfer" }
+      { label: "Expenses", route: "expenses" },
+      { label: "Suppliers", route: "suppliers" },
+      { label: "Customers", route: "customers" },
+      { label: "Sales Orders", route: "sales-orders" },
+      { label: "Quotations", route: "quotations" },
+      { label: "Invoices", route: "invoices" },
+      { label: "Sales Receipts", route: "sales-receipts" },
+      { label: "Credit Memo / Refunds", route: "credit-memos" },
+      { label: "Claims", route: "claims" },
+      { label: "Inventory Transfers", route: "inventory-transfer" },
+      { label: "Inventory Adjustments", route: "inventory-adjustments" },
+      { label: "Bulk SMS", route: "bulk-sms" }
     ]},
 
     { label: "Reports", icon: "chart", children: [
+      { label: "All Reports", route: "all-reports" },
       { label: "Sales by Item", route: "report-sales-item" },
       { label: "Sales by Customer", route: "report-sales-customer" },
-      { label: "Inventory Valuation", route: "report-inventory" },
       { label: "Customer Balances", route: "report-customer-balances" },
-      { label: "Supplier Balances", route: "report-supplier-balances" }
-    ]},
-
-    { label: "Settings", icon: "settings", children: [
-      { label: "Categories", route: "categories" },
-      { label: "Brands", route: "brands" },
-      { label: "Units (UOM)", route: "uom" },
-      { label: "Tax Types", route: "tax-types" },
-      { label: "Regions & Areas", route: "areas" },
-      { label: "Sales Representatives", route: "sales-representatives" },
-      { label: "Users", route: "users" },
-      { label: "Company Information", route: "company-information" }
+      { label: "Inventory Valuation", route: "report-inventory" }
     ]}
   ],
 

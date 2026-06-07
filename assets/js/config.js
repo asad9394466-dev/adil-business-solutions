@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "1.7 (Phase 2)",
+  VERSION: "1.8 (Phase 3 — Accounts)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -72,8 +72,12 @@ window.ABS_CONFIG = {
       { label: "General Journal", route: "general-journal" },
       { label: "Receive Payments", route: "receive-payments" },
       { label: "View Payments", route: "view-payments" },
+      { label: "Record Deposit", route: "show-undeposited-list" },
+      { label: "View Deposit", route: "view-deposits" },
       { label: "Pay Bills", route: "pay-bills" },
-      { label: "Transfer Funds", route: "transfer-funds" }
+      { label: "View Paid Bills", route: "view-paid-bills" },
+      { label: "Transfer Funds", route: "transfer-funds" },
+      { label: "Check Register", route: "check-register" }
     ]},
 
     { label: "Transactions", icon: "file-text", children: [
@@ -105,5 +109,5 @@ window.ABS_CONFIG = {
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills"]
 };

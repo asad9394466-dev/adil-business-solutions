@@ -35,7 +35,11 @@ var SCHEMA = {
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
   SalesReceipts:     ['id','receipt_no','date','customer_id','customer_name','subtotal','discount','tax','total','paid','balance','status','notes','sales_rep','order_type','created_by','created_at'],
   SalesReceiptItems: ['id','receipt_id','item_id','description','qty','unit_price','discount','line_total'],
-  Payments:       ['id','date','customer_id','invoice_id','amount','method','reference','notes','created_at'],
+  Payments:       ['id','date','customer_id','invoice_id','amount','method','reference','notes','created_at','is_deposited','deposit_id'],
+  Accounts:       ['id','account_number','account_name','account_type','system_key','parent_account_id','is_active','description','created_at'],
+  Journal:        ['id','entry_id','entry_no','date','account_id','debit','credit','name','memo','source_type','source_id','created_by','created_at'],
+  Deposits:       ['id','deposit_no','date','account_id','memo','total','created_by','created_at'],
+  FundTransfers:  ['id','date','from_account_id','to_account_id','amount','memo','created_by','created_at'],
   StockMovements: ['id','date','item_id','type','qty','reference_type','reference_id','notes']
 };
 
@@ -123,6 +127,30 @@ function migrate() {
   upsertCounter_('sales_receipt', 'SAL-1-');
   upsertCounter_('quotation', 'QUO-1-');
   upsertCounter_('sales_order', 'SO-1-');
+  upsertCounter_('journal', 'JE-');
+  upsertCounter_('deposit', 'DEP-');
+
+  // seed the standard chart of accounts (only if empty)
+  if (sheet_('Accounts').getLastRow() <= 1) {
+    [
+      ['1001','Sales','Income','sales'],
+      ['1002','Sales Discount','Income','sales_discount'],
+      ['1003','Cost of Goods Sold','Cost of Goods Sold','cogs'],
+      ['1004','Inventory Asset','Other Current Asset','inventory'],
+      ['1005','Accounts Receivable','Accounts Receivable','ar'],
+      ['1006','Accounts Payable','Accounts Payable','ap'],
+      ['1007','Cash in-hand','Bank','cash'],
+      ['1008','POS Drawer','Bank','pos_drawer'],
+      ['1009','Undeposited Funds','Other Current Asset','undeposited'],
+      ['1010','Opening Balance Equity','Equity','ob_equity'],
+      ['1011','Sales Tax Payable','Other Current Liability','sales_tax'],
+      ['1012','Rent','Expense',''],
+      ['1013','Salaries','Expense',''],
+      ['1014','Bilty Charges','Expense','']
+    ].forEach(function (a) {
+      create_('Accounts', { account_number: a[0], account_name: a[1], account_type: a[2], system_key: a[3], is_active: 'Yes' });
+    });
+  }
 
   Logger.log('Migration complete: tabs and columns are in sync with SCHEMA.');
 }
@@ -183,6 +211,19 @@ function handle_(e) {
       case 'getSettings': return out_({ ok: true, data: getSettings_() });
       case 'saveSettings': return out_({ ok: true, data: saveSettings_(p.data) });
       case 'allTransactions': return out_({ ok: true, data: allTransactions_() });
+      case 'accountsList': return out_({ ok: true, data: accountsWithBalances_() });
+      case 'createAccount': return out_({ ok: true, data: createAccount_(p) });
+      case 'updateAccount': return out_({ ok: true, data: update_('Accounts', p.id, p.data || {}) });
+      case 'deleteAccount': return out_({ ok: true, data: deleteAccount_(p.id) });
+      case 'journalList': return out_({ ok: true, data: journalList_() });
+      case 'createJournalEntry': return out_({ ok: true, data: createJournalEntry_(p) });
+      case 'accountLedger': return out_({ ok: true, data: accountLedger_(p.id) });
+      case 'transferFunds': return out_({ ok: true, data: transferFunds_(p) });
+      case 'transfersList': return out_({ ok: true, data: transfersList_() });
+      case 'undepositedList': return out_({ ok: true, data: undepositedList_() });
+      case 'recordDeposit': return out_({ ok: true, data: recordDeposit_(p) });
+      case 'depositsList': return out_({ ok: true, data: depositsList_() });
+      case 'paymentsList': return out_({ ok: true, data: paymentsList_() });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -420,6 +461,7 @@ function createInvoice_(p) {
     };
     sheet_('Invoices').appendRow(SCHEMA.Invoices.map(function (h) { return safeCell_(rec[h]); }));
     writeInvoiceLines_(id, invoiceNo, d.lines, d.date);
+    postSaleJournal_('invoice', id, invoiceNo, rec, p.token, 'ar');
     return { id: id, invoice_no: invoiceNo };
   } finally {
     lock.releaseLock();
@@ -442,6 +484,8 @@ function updateInvoice_(p) {
     notes: d.notes || ''
   });
   writeInvoiceLines_(id, inv.invoice_no, d.lines, d.date || inv.date);
+  reverseSource_('invoice', id);
+  postSaleJournal_('invoice', id, inv.invoice_no, get_('Invoices', id), p.token, 'ar');
   return { id: id, invoice_no: inv.invoice_no };
 }
 
@@ -456,28 +500,35 @@ function invoiceDetail_(id) {
 
 function recordPayment_(p) {
   var d = p.data || {};
-  var inv = rows_('Invoices').filter(function (r) { return String(r.id) === String(d.invoice_id); })[0];
-  if (!inv) throw new Error('Invoice not found.');
-  create_('Payments', {
-    date: d.date || new Date().toISOString().slice(0, 10),
-    customer_id: inv.customer_id, invoice_id: d.invoice_id,
-    amount: Number(d.amount || 0), method: d.method || '', reference: d.reference || '', notes: d.notes || ''
+  var allocs = d.allocations;
+  if (!allocs) allocs = [{ invoice_id: d.invoice_id, amount: Number(d.amount || 0) }];
+  var date = d.date || new Date().toISOString().slice(0, 10);
+  var total = 0;
+  allocs.forEach(function (a) {
+    var amt = Number(a.amount || 0);
+    if (amt <= 0 || !a.invoice_id) return;
+    var inv = rows_('Invoices').filter(function (r) { return String(r.id) === String(a.invoice_id); })[0];
+    if (!inv) return;
+    create_('Payments', { date: date, customer_id: inv.customer_id, invoice_id: a.invoice_id, amount: amt, method: d.method || '', reference: d.reference || '', notes: d.memo || d.notes || '', is_deposited: '', deposit_id: '' });
+    var paid = rows_('Payments').filter(function (r) { return String(r.invoice_id) === String(a.invoice_id); }).reduce(function (s, r) { return s + Number(r.amount || 0); }, 0);
+    var t = Number(inv.total || 0);
+    update_('Invoices', a.invoice_id, { paid: paid, balance: t - paid, status: paid >= t ? 'paid' : (paid > 0 ? 'partial' : 'unpaid') });
+    total += amt;
   });
-  var paid = rows_('Payments')
-    .filter(function (r) { return String(r.invoice_id) === String(d.invoice_id); })
-    .reduce(function (s, r) { return s + Number(r.amount || 0); }, 0);
-  var total = Number(inv.total || 0);
-  update_('Invoices', d.invoice_id, {
-    paid: paid, balance: total - paid,
-    status: paid >= total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
-  });
-  return get_('Invoices', d.invoice_id);
+  if (total > 0) {
+    try {
+      postEntry_({ date: date, memo: 'Customer payment', source_type: 'payment', source_id: 'PMT' + Date.now(), created_by: userFromToken_(p.token),
+        lines: [{ account_id: acctId_('undeposited'), debit: total, credit: 0 }, { account_id: acctId_('ar'), debit: 0, credit: total }] });
+    } catch (e) {}
+  }
+  return { ok: true, total: total };
 }
 
 function deleteInvoice_(id) {
   update_('Invoices', id, { status: 'deleted' });
   deleteWhere_('InvoiceItems', 'invoice_id', id);
   deleteWhere_('StockMovements', 'reference_id', id);
+  reverseSource_('invoice', id);
   return { id: id, deleted: true };
 }
 
@@ -531,6 +582,7 @@ function createSalesReceipt_(p) {
     };
     sheet_('SalesReceipts').appendRow(SCHEMA.SalesReceipts.map(function (h) { return safeCell_(rec[h]); }));
     writeReceiptLines_(id, receiptNo, d.lines, d.date);
+    postSaleJournal_('receipt', id, receiptNo, rec, p.token, 'cash');
     return { id: id, receipt_no: receiptNo };
   } finally {
     lock.releaseLock();
@@ -552,6 +604,8 @@ function updateSalesReceipt_(p) {
     sales_rep: d.sales_rep || '', order_type: d.order_type || 'Local'
   });
   writeReceiptLines_(id, r.receipt_no, d.lines, d.date || r.date);
+  reverseSource_('receipt', id);
+  postSaleJournal_('receipt', id, r.receipt_no, get_('SalesReceipts', id), p.token, 'cash');
   return { id: id, receipt_no: r.receipt_no };
 }
 
@@ -567,6 +621,7 @@ function deleteSalesReceipt_(id) {
   update_('SalesReceipts', id, { status: 'deleted' });
   deleteWhere_('SalesReceiptItems', 'receipt_id', id);
   deleteWhere_('StockMovements', 'reference_id', id);
+  reverseSource_('receipt', id);
   return { id: id, deleted: true };
 }
 
@@ -608,6 +663,204 @@ function saveSettings_(data) {
     else sh.appendRow([k, safeCell_(data[k])]);
   });
   return getSettings_();
+}
+
+// =====================================================================
+//  ACCOUNTING — double-entry ledger
+// =====================================================================
+var DEBIT_NORMAL = ['Bank', 'Other Asset', 'Other Current Asset', 'Accounts Receivable', 'Fixed Asset', 'Cost of Goods Sold', 'Expense', 'Other Expense'];
+function acctSign_(type) { return DEBIT_NORMAL.indexOf(type) !== -1 ? 1 : -1; }
+function acctByKey_(key) { return rows_('Accounts').filter(function (a) { return String(a.system_key) === String(key); })[0]; }
+function acctId_(key) { var a = acctByKey_(key); return a ? a.id : ''; }
+
+// post a balanced journal entry; lines: [{account_id, debit, credit, name, memo}]
+function postEntry_(o) {
+  var lines = (o.lines || []).filter(function (l) { return Number(l.debit || 0) !== 0 || Number(l.credit || 0) !== 0; });
+  var totDr = 0, totCr = 0;
+  lines.forEach(function (l) { totDr += Number(l.debit || 0); totCr += Number(l.credit || 0); });
+  if (Math.abs(totDr - totCr) > 0.01) throw new Error('Journal entry not balanced (Dr ' + totDr + ' vs Cr ' + totCr + ').');
+  if (!lines.length) return null;
+  var entryId = newId_();
+  var entryNo = incrementCounter_('journal');
+  var date = o.date || new Date().toISOString().slice(0, 10);
+  lines.forEach(function (l) {
+    create_('Journal', {
+      entry_id: entryId, entry_no: entryNo, date: date, account_id: l.account_id || '',
+      debit: Number(l.debit || 0), credit: Number(l.credit || 0),
+      name: l.name || '', memo: l.memo || o.memo || '',
+      source_type: o.source_type || 'manual', source_id: o.source_id || '', created_by: o.created_by || ''
+    });
+  });
+  return { entry_id: entryId, entry_no: entryNo };
+}
+
+// remove all journal lines posted by a given source document (for edit/delete)
+function reverseSource_(st, sid) {
+  if (!sid) return;
+  var sh = sheet_('Journal');
+  rows_('Journal')
+    .filter(function (r) { return String(r.source_type) === String(st) && String(r.source_id) === String(sid); })
+    .map(function (r) { return r.__row; })
+    .sort(function (a, b) { return b - a; })
+    .forEach(function (row) { sh.deleteRow(row); });
+}
+
+// auto-postings from sales documents (revenue side only; COGS/inventory come with the inventory phase)
+function postSaleJournal_(sourceType, id, no, rec, token, cashKey) {
+  var total = Number(rec.total || 0); if (total <= 0) return;
+  var subtotal = Number(rec.subtotal || 0), discount = Number(rec.discount || 0);
+  var lines = [
+    { account_id: acctId_(cashKey), debit: total, credit: 0 },
+    { account_id: acctId_('sales'), debit: 0, credit: subtotal }
+  ];
+  if (discount > 0) lines.push({ account_id: acctId_('sales_discount'), debit: discount, credit: 0 });
+  try {
+    postEntry_({ date: rec.date, memo: (sourceType === 'invoice' ? 'Invoice ' : 'Sales Receipt ') + no,
+      source_type: sourceType, source_id: id, created_by: userFromToken_(token), lines: lines });
+  } catch (e) { /* never block the document on a posting hiccup */ }
+}
+
+function accountsWithBalances_() {
+  var bal = {};
+  rows_('Journal').forEach(function (r) {
+    var a = String(r.account_id);
+    bal[a] = (bal[a] || 0) + Number(r.debit || 0) - Number(r.credit || 0);
+  });
+  return rows_('Accounts').map(function (a) {
+    var o = strip_(a);
+    o.balance = (bal[String(a.id)] || 0) * acctSign_(a.account_type);
+    return o;
+  });
+}
+
+function nextAccountNumber_() {
+  var max = 1000;
+  rows_('Accounts').forEach(function (a) { var n = parseInt(a.account_number, 10); if (!isNaN(n) && n > max) max = n; });
+  return String(max + 1);
+}
+
+function createAccount_(p) {
+  var d = p.data || {};
+  var rec = create_('Accounts', {
+    account_number: d.account_number || nextAccountNumber_(),
+    account_name: d.account_name, account_type: d.account_type, system_key: '',
+    parent_account_id: d.parent_account_id || '', is_active: d.is_active || 'Yes',
+    description: d.description || ''
+  });
+  var ob = Number(d.opening_balance || 0);
+  if (ob !== 0) {
+    var sign = acctSign_(d.account_type);
+    var lines = sign === 1
+      ? [{ account_id: rec.id, debit: ob, credit: 0 }, { account_id: acctId_('ob_equity'), debit: 0, credit: ob }]
+      : [{ account_id: rec.id, debit: 0, credit: ob }, { account_id: acctId_('ob_equity'), debit: ob, credit: 0 }];
+    try { postEntry_({ date: d.opening_date || new Date().toISOString().slice(0, 10), memo: 'Opening balance', source_type: 'opening', source_id: rec.id, created_by: userFromToken_(p.token), lines: lines }); } catch (e) {}
+  }
+  return rec;
+}
+
+function deleteAccount_(id) {
+  var hasLines = rows_('Journal').some(function (r) { return String(r.account_id) === String(id); });
+  if (hasLines) throw new Error('This account has transactions and cannot be deleted. Mark it inactive instead.');
+  var sh = sheet_('Accounts');
+  var m = rows_('Accounts').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (m) sh.deleteRow(m.__row);
+  return { id: id, deleted: true };
+}
+
+function createJournalEntry_(p) {
+  var d = p.data || {};
+  return postEntry_({ date: d.date, memo: d.memo, source_type: 'manual', source_id: newId_(), created_by: userFromToken_(p.token), lines: d.lines || [] });
+}
+
+function journalList_() {
+  var accs = {}; rows_('Accounts').forEach(function (a) { accs[String(a.id)] = a.account_name; });
+  return rows_('Journal').map(function (r) {
+    var o = strip_(r); o.account_name = accs[String(r.account_id)] || ''; return o;
+  }).sort(function (a, b) { return String(b.date + b.entry_no).localeCompare(String(a.date + a.entry_no)); });
+}
+
+function accountLedger_(accountId) {
+  var acct = get_('Accounts', accountId);
+  if (!acct) throw new Error('Account not found.');
+  var sign = acctSign_(acct.account_type);
+  var lines = rows_('Journal').filter(function (r) { return String(r.account_id) === String(accountId); })
+    .sort(function (a, b) { return String(a.date + a.entry_no).localeCompare(String(b.date + b.entry_no)); });
+  var running = 0;
+  var out = lines.map(function (r) {
+    running += Number(r.debit || 0) - Number(r.credit || 0);
+    return { date: r.date, entry_no: r.entry_no, memo: r.memo, name: r.name, debit: Number(r.debit || 0), credit: Number(r.credit || 0), balance: running * sign };
+  });
+  return { account: acct, lines: out, balance: running * sign };
+}
+
+function transferFunds_(p) {
+  var d = p.data || {};
+  var amount = Number(d.amount || 0);
+  if (amount <= 0) throw new Error('Enter a valid amount.');
+  if (String(d.from_account_id) === String(d.to_account_id)) throw new Error('Cannot transfer between the same account.');
+  var rec = create_('FundTransfers', {
+    date: d.date || new Date().toISOString().slice(0, 10), from_account_id: d.from_account_id,
+    to_account_id: d.to_account_id, amount: amount, memo: d.memo || '', created_by: userFromToken_(p.token)
+  });
+  try {
+    postEntry_({ date: rec.date, memo: 'Funds transfer' + (d.memo ? ' — ' + d.memo : ''), source_type: 'transfer', source_id: rec.id, created_by: userFromToken_(p.token),
+      lines: [{ account_id: d.to_account_id, debit: amount, credit: 0 }, { account_id: d.from_account_id, debit: 0, credit: amount }] });
+  } catch (e) {}
+  return rec;
+}
+
+function transfersList_() {
+  var accs = {}; rows_('Accounts').forEach(function (a) { accs[String(a.id)] = a.account_name; });
+  return rows_('FundTransfers').map(function (r) {
+    var o = strip_(r);
+    o.from_account_name = accs[String(r.from_account_id)] || '';
+    o.to_account_name = accs[String(r.to_account_id)] || '';
+    return o;
+  }).sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
+}
+
+function paymentsList_() {
+  var custs = {}; list_('Customers', {}).forEach(function (c) { custs[String(c.id)] = c.name; });
+  return rows_('Payments').map(function (r) {
+    var o = strip_(r); o.customer = custs[String(r.customer_id)] || ''; return o;
+  }).sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+}
+
+function undepositedList_() {
+  var custs = {}; list_('Customers', {}).forEach(function (c) { custs[String(c.id)] = c.name; });
+  return rows_('Payments').filter(function (r) { return !r.is_deposited || String(r.is_deposited) === ''; })
+    .map(function (r) { var o = strip_(r); o.customer = custs[String(r.customer_id)] || ''; return o; });
+}
+
+function recordDeposit_(p) {
+  var d = p.data || {};
+  var ids = d.payment_ids || [];
+  if (!ids.length) throw new Error('Select at least one payment to deposit.');
+  var total = 0;
+  var depId = newId_();
+  var depNo = incrementCounter_('deposit');
+  rows_('Payments').forEach(function (r) {
+    if (ids.indexOf(r.id) !== -1) {
+      total += Number(r.amount || 0);
+      update_('Payments', r.id, { is_deposited: '1', deposit_id: depId });
+    }
+  });
+  sheet_('Deposits').appendRow(SCHEMA.Deposits.map(function (h) {
+    var m = { id: depId, deposit_no: depNo, date: d.date || new Date().toISOString().slice(0, 10), account_id: d.account_id || '', memo: d.memo || '', total: total, created_by: userFromToken_(p.token), created_at: new Date().toISOString() };
+    return safeCell_(m[h]);
+  }));
+  try {
+    postEntry_({ date: d.date, memo: 'Deposit ' + depNo, source_type: 'deposit', source_id: depId, created_by: userFromToken_(p.token),
+      lines: [{ account_id: d.account_id, debit: total, credit: 0 }, { account_id: acctId_('undeposited'), debit: 0, credit: total }] });
+  } catch (e) {}
+  return { id: depId, deposit_no: depNo, total: total };
+}
+
+function depositsList_() {
+  var accs = {}; rows_('Accounts').forEach(function (a) { accs[String(a.id)] = a.account_name; });
+  return rows_('Deposits').map(function (r) {
+    var o = strip_(r); o.account_name = accs[String(r.account_id)] || ''; return o;
+  }).sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
 }
 
 // =====================================================================

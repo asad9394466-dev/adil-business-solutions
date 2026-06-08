@@ -22,8 +22,24 @@ const CompanySettings = {
       if (s.currency) co.currency = s.currency;
       if (s.currency_symbol) co.currency_symbol = s.currency_symbol;
       if (s.invoice_prefix) co.invoice_prefix = s.invoice_prefix;
+      co.logo = s.logo || '';
+      this.applyBrand();
       return s;
     } catch (e) { return null; }
+  },
+
+  // paint the saved logo into the sidebar / login brand marks
+  applyBrand() {
+    const co = window.ABS_CONFIG.COMPANY;
+    UI.$$('.brand-mark').forEach(el => {
+      if (co.logo) {
+        el.innerHTML = `<img src="${co.logo}" alt="" class="brand-logo">`;
+        el.classList.add('brand-mark--img');
+      } else {
+        el.classList.remove('brand-mark--img');
+        el.textContent = window.ABS_CONFIG.APP_SHORT;
+      }
+    });
   }
 };
 window.CompanySettings = CompanySettings;
@@ -43,6 +59,19 @@ Router.register('company-information', async (mount) => {
       <div class="page-actions"><button class="btn btn--primary" id="ci-save">Save</button></div>
     </div>
     <div class="card">
+      <div class="card-head"><h2>Branding</h2></div>
+      <div class="logo-row">
+        <div class="logo-preview" id="ci-logo-preview">${s.logo ? `<img src="${s.logo}" alt="logo">` : `<span class="logo-placeholder">${UI.escape(window.ABS_CONFIG.APP_SHORT)}</span>`}</div>
+        <div class="logo-controls">
+          <p class="muted">Shown in the sidebar and on the login screen. A small square image works best — it's automatically resized, so keep it simple (PNG with transparency is ideal).</p>
+          <input type="file" id="ci-logo-file" accept="image/*" style="display:none">
+          <button class="btn" id="ci-logo-pick">Choose image…</button>
+          <button class="btn" id="ci-logo-clear">Remove logo</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="form-grid">
         <label class="field field--wide"><span class="field-label">Company Name</span><input id="ci-company_name" value="${v('company_name')}"></label>
         <label class="field field--wide"><span class="field-label">Company Name (Urdu)</span><input id="ci-name_urdu" value="${v('name_urdu')}" dir="rtl"></label>
@@ -59,10 +88,47 @@ Router.register('company-information', async (mount) => {
       </div>
     </div>`;
 
+  // --- logo upload (resized client-side so it fits in one Sheet cell) ---
+  let logoData = s.logo || '';
+  const preview = mount.querySelector('#ci-logo-preview');
+  const setPreview = () => {
+    preview.innerHTML = logoData ? `<img src="${logoData}" alt="logo">` : `<span class="logo-placeholder">${UI.escape(window.ABS_CONFIG.APP_SHORT)}</span>`;
+  };
+  const resizeImage = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 160;
+        let { width: w, height: h } = img;
+        if (w > h && w > max) { h = Math.round(h * max / w); w = max; }
+        else if (h > max) { w = Math.round(w * max / h); h = max; }
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        let out = c.toDataURL('image/png');
+        if (out.length > 45000) out = c.toDataURL('image/jpeg', 0.82); // keep under one Sheet cell
+        resolve(out);
+      };
+      img.onerror = () => reject(new Error('That file could not be read as an image.'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('Could not read the file.'));
+    reader.readAsDataURL(file);
+  });
+  mount.querySelector('#ci-logo-pick').onclick = () => mount.querySelector('#ci-logo-file').click();
+  mount.querySelector('#ci-logo-file').onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try { logoData = await resizeImage(file); setPreview(); UI.toast('Logo ready — click Save to apply.', 'success'); }
+    catch (err) { UI.toast(err.message, 'error'); }
+  };
+  mount.querySelector('#ci-logo-clear').onclick = () => { logoData = ''; setPreview(); UI.toast('Logo cleared — click Save to apply.', 'info'); };
+
   mount.querySelector('#ci-save').onclick = async () => {
     const keys = ['company_name','name_urdu','address1','address2','phone','mobile','email','currency_symbol','currency','invoice_prefix','terms','ticker'];
     const data = {};
     keys.forEach(k => { data[k] = mount.querySelector('#ci-' + k).value; });
+    data.logo = logoData;
     UI.loading(true, 'Saving…');
     try {
       await API.call('saveSettings', { data });

@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "2.0 (Phase 4 — Purchasing & Sales Docs)",
+  VERSION: "2.1 (Phase 5 — Operations complete)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -109,5 +109,5 @@ window.ABS_CONFIG = {
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo", "expenses", "new-expense", "edit-expense", "inventory-transfer", "new-inventory-transfer", "edit-inventory-transfer", "inventory-adjustments", "new-inventory-adjustment", "edit-inventory-adjustment", "claims", "new-claim", "edit-claim"]
 };

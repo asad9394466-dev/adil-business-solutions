@@ -41,6 +41,14 @@ var SCHEMA = {
   QuotationItems:     ['id','quote_id','item_id','description','qty','unit_price','discount','line_total'],
   CreditMemos:        ['id','memo_no','date','customer_id','subtotal','discount','tax','total','status','notes','reference_no','created_by','created_at'],
   CreditMemoItems:    ['id','memo_id','item_id','description','qty','unit_price','discount','line_total'],
+  Expenses:           ['id','expense_no','date','payee','payment_account_id','reference_no','description','total','status','created_by','created_at'],
+  ExpenseItems:       ['id','expense_id','account_id','description','amount'],
+  InventoryTransfers:     ['id','transfer_no','date','store_id','from_warehouse','to_warehouse','description','status','created_by','created_at'],
+  InventoryTransferItems: ['id','transfer_id','item_id','description','qty','unit'],
+  InventoryAdjustments:     ['id','adjustment_no','reference_no','adjustment_type','date','store_id','warehouse','adjustment_account_id','description','total_value','status','created_by','created_at'],
+  InventoryAdjustmentItems: ['id','adjustment_id','item_id','description','on_hand','new_qty','qty_diff','cost','value_diff'],
+  Claims:             ['id','claim_no','date','customer_id','store_id','reference_no','description','status','created_by','created_at'],
+  ClaimItems:         ['id','claim_id','item_id','description','serial_no','qty','unit'],
   Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at','due_date','reference_no'],
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
   SalesReceipts:     ['id','receipt_no','date','customer_id','customer_name','subtotal','discount','tax','total','paid','balance','status','notes','sales_rep','order_type','created_by','created_at'],
@@ -142,6 +150,10 @@ function migrate() {
   upsertCounter_('purchase_order', 'PO-1-');
   upsertCounter_('bill', 'B-1-');
   upsertCounter_('credit_memo', 'CM-1-');
+  upsertCounter_('expense', 'EXP-1-');
+  upsertCounter_('inventory_transfer', 'IT-1-');
+  upsertCounter_('inventory_adjustment', 'IA-1-');
+  upsertCounter_('claim', 'CLM-1-');
 
   // seed the standard chart of accounts (only if empty)
   if (sheet_('Accounts').getLastRow() <= 1) {
@@ -257,6 +269,19 @@ function handle_(e) {
       case 'updateCreditMemo': return out_({ ok: true, data: saveCreditMemo_(p) });
       case 'creditMemoDetail': return out_({ ok: true, data: simpleDocDetail_('CreditMemos','CreditMemoItems','memo_id',p.id) });
       case 'deleteCreditMemo': return out_({ ok: true, data: deleteCreditMemo_(p.id) });
+      case 'saveExpense': case 'updateExpense': return out_({ ok: true, data: saveExpense_(p) });
+      case 'expenseDetail': return out_({ ok: true, data: expenseDetail_(p.id) });
+      case 'deleteExpense': return out_({ ok: true, data: deleteExpense_(p.id) });
+      case 'saveInventoryTransfer': case 'updateInventoryTransfer': return out_({ ok: true, data: saveInventoryTransfer_(p) });
+      case 'inventoryTransferDetail': return out_({ ok: true, data: inventoryTransferDetail_(p.id) });
+      case 'deleteInventoryTransfer': return out_({ ok: true, data: deleteInventoryTransfer_(p.id) });
+      case 'saveInventoryAdjustment': case 'updateInventoryAdjustment': return out_({ ok: true, data: saveInventoryAdjustment_(p) });
+      case 'inventoryAdjustmentDetail': return out_({ ok: true, data: inventoryAdjustmentDetail_(p.id) });
+      case 'deleteInventoryAdjustment': return out_({ ok: true, data: deleteInventoryAdjustment_(p.id) });
+      case 'inventoryOnHand': return out_({ ok: true, data: { item_id: p.item_id, on_hand: onHand_(p.item_id) } });
+      case 'saveClaim': case 'updateClaim': return out_({ ok: true, data: saveClaim_(p) });
+      case 'claimDetail': return out_({ ok: true, data: claimDetail_(p.id) });
+      case 'deleteClaim': return out_({ ok: true, data: deleteClaim_(p.id) });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -419,7 +444,8 @@ function nextNumber_(name) {
 // default prefixes so a counter created on first use still numbers correctly
 var COUNTER_PREFIX = {
   invoice: 'INV-1-', sales_receipt: 'SAL-1-', quotation: 'QUO-1-', sales_order: 'SO-1-',
-  credit_memo: 'CM-1-', journal: 'JE-', deposit: 'DEP-', purchase_order: 'PO-1-', bill: 'B-1-'
+  credit_memo: 'CM-1-', journal: 'JE-', deposit: 'DEP-', purchase_order: 'PO-1-', bill: 'B-1-',
+  expense: 'EXP-1-', inventory_transfer: 'IT-1-', inventory_adjustment: 'IA-1-', claim: 'CLM-1-'
 };
 
 // no-lock version, used inside operations that already hold the lock
@@ -1226,3 +1252,160 @@ function deleteCreditMemo_(id) {
   reverseSource_('credit_memo', id);
   return { id: id, deleted: true };
 }
+
+// =====================================================================
+//  STOCK ON HAND  (global per item, from StockMovements)
+// =====================================================================
+function onHand_(itemId) {
+  if (!itemId) return 0;
+  return rows_('StockMovements').filter(function (r) { return String(r.item_id) === String(itemId); })
+    .reduce(function (s, r) { return s + (String(r.type) === 'out' ? -1 : 1) * Number(r.qty || 0); }, 0);
+}
+
+// =====================================================================
+//  EXPENSES  (posts: Dr expense account(s), Cr the payment account)
+// =====================================================================
+function saveExpense_(p) {
+  var d = p.data || {}; var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = (d.lines || []).filter(function (l) { return l.account_id || Number(l.amount || 0) !== 0; });
+    var total = lines.reduce(function (s, l) { return s + Number(l.amount || 0); }, 0);
+    var id = p.id, no;
+    if (p.id) {
+      var ex = rows_('Expenses').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Expense not found.');
+      no = ex.expense_no;
+      deleteWhere_('ExpenseItems', 'expense_id', p.id);
+      reverseSource_('expense', p.id);
+      update_('Expenses', p.id, { date: d.date || ex.date, payee: d.payee || '', payment_account_id: d.payment_account_id || '', reference_no: d.reference_no || '', description: d.description || '', total: total });
+    } else {
+      no = incrementCounter_('expense'); id = newId_();
+      var rec = { id: id, expense_no: no, date: d.date || new Date().toISOString().slice(0, 10), payee: d.payee || '', payment_account_id: d.payment_account_id || '', reference_no: d.reference_no || '', description: d.description || '', total: total, status: 'recorded', created_by: userFromToken_(p.token), created_at: new Date().toISOString() };
+      sheet_('Expenses').appendRow(SCHEMA.Expenses.map(function (h) { return safeCell_(rec[h]); }));
+    }
+    lines.forEach(function (l) { create_('ExpenseItems', { expense_id: id, account_id: l.account_id || '', description: l.description || '', amount: Number(l.amount || 0) }); });
+    if (total > 0 && d.payment_account_id) {
+      var jlines = lines.map(function (l) { return { account_id: l.account_id, debit: Number(l.amount || 0), credit: 0, memo: l.description || '' }; });
+      jlines.push({ account_id: d.payment_account_id, debit: 0, credit: total });
+      try { postEntry_({ date: d.date, memo: 'Expense ' + no, source_type: 'expense', source_id: id, created_by: userFromToken_(p.token), lines: jlines }); } catch (e) {}
+    }
+    return { id: id, number: no };
+  } finally { lock.releaseLock(); }
+}
+function expenseDetail_(id) {
+  var record = get_('Expenses', id); if (!record) throw new Error('Expense not found.');
+  var items = rows_('ExpenseItems').filter(function (r) { return String(r.expense_id) === String(id); }).map(strip_);
+  return { record: record, items: items };
+}
+function deleteExpense_(id) { update_('Expenses', id, { status: 'deleted' }); deleteWhere_('ExpenseItems', 'expense_id', id); reverseSource_('expense', id); return { id: id, deleted: true }; }
+
+// =====================================================================
+//  INVENTORY TRANSFER  (non-posting; stock out of one WH, into another)
+// =====================================================================
+function saveInventoryTransfer_(p) {
+  var d = p.data || {}; var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = (d.lines || []).filter(function (l) { return l.item_id && Number(l.qty || 0) > 0; });
+    var id = p.id, no, date = d.date || new Date().toISOString().slice(0, 10);
+    if (p.id) {
+      var ex = rows_('InventoryTransfers').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Transfer not found.');
+      no = ex.transfer_no;
+      deleteWhere_('InventoryTransferItems', 'transfer_id', p.id);
+      deleteWhere_('StockMovements', 'reference_id', p.id);
+      update_('InventoryTransfers', p.id, { date: date, store_id: d.store_id || '', from_warehouse: d.from_warehouse || '', to_warehouse: d.to_warehouse || '', description: d.description || '' });
+    } else {
+      no = incrementCounter_('inventory_transfer'); id = newId_();
+      var rec = { id: id, transfer_no: no, date: date, store_id: d.store_id || '', from_warehouse: d.from_warehouse || '', to_warehouse: d.to_warehouse || '', description: d.description || '', status: 'completed', created_by: userFromToken_(p.token), created_at: new Date().toISOString() };
+      sheet_('InventoryTransfers').appendRow(SCHEMA.InventoryTransfers.map(function (h) { return safeCell_(rec[h]); }));
+    }
+    lines.forEach(function (l) {
+      create_('InventoryTransferItems', { transfer_id: id, item_id: l.item_id, description: l.description || '', qty: Number(l.qty || 0), unit: l.unit || '' });
+      create_('StockMovements', { date: date, item_id: l.item_id, type: 'out', qty: Number(l.qty || 0), reference_type: 'transfer', reference_id: id, notes: no + ' from ' + (d.from_warehouse || '') });
+      create_('StockMovements', { date: date, item_id: l.item_id, type: 'in', qty: Number(l.qty || 0), reference_type: 'transfer', reference_id: id, notes: no + ' to ' + (d.to_warehouse || '') });
+    });
+    return { id: id, number: no };
+  } finally { lock.releaseLock(); }
+}
+function inventoryTransferDetail_(id) {
+  var record = get_('InventoryTransfers', id); if (!record) throw new Error('Transfer not found.');
+  var items = rows_('InventoryTransferItems').filter(function (r) { return String(r.transfer_id) === String(id); }).map(strip_);
+  return { record: record, items: items };
+}
+function deleteInventoryTransfer_(id) { update_('InventoryTransfers', id, { status: 'deleted' }); deleteWhere_('InventoryTransferItems', 'transfer_id', id); deleteWhere_('StockMovements', 'reference_id', id); return { id: id, deleted: true }; }
+
+// =====================================================================
+//  INVENTORY ADJUSTMENT  (stock +/- and a value entry to the chosen
+//  adjustment account vs Inventory Asset)
+// =====================================================================
+function saveInventoryAdjustment_(p) {
+  var d = p.data || {}; var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = (d.lines || []).filter(function (l) { return l.item_id; });
+    var totalValue = lines.reduce(function (s, l) { return s + Number(l.value_diff || 0); }, 0);
+    var id = p.id, no, date = d.date || new Date().toISOString().slice(0, 10);
+    if (p.id) {
+      var ex = rows_('InventoryAdjustments').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Adjustment not found.');
+      no = ex.adjustment_no;
+      deleteWhere_('InventoryAdjustmentItems', 'adjustment_id', p.id);
+      deleteWhere_('StockMovements', 'reference_id', p.id);
+      reverseSource_('adjustment', p.id);
+      update_('InventoryAdjustments', p.id, { reference_no: d.reference_no || '', adjustment_type: d.adjustment_type || ex.adjustment_type, date: date, store_id: d.store_id || '', warehouse: d.warehouse || '', adjustment_account_id: d.adjustment_account_id || '', description: d.description || '', total_value: totalValue });
+    } else {
+      no = incrementCounter_('inventory_adjustment'); id = newId_();
+      var rec = { id: id, adjustment_no: no, reference_no: d.reference_no || '', adjustment_type: d.adjustment_type || 'Quantity', date: date, store_id: d.store_id || '', warehouse: d.warehouse || '', adjustment_account_id: d.adjustment_account_id || '', description: d.description || '', total_value: totalValue, status: 'completed', created_by: userFromToken_(p.token), created_at: new Date().toISOString() };
+      sheet_('InventoryAdjustments').appendRow(SCHEMA.InventoryAdjustments.map(function (h) { return safeCell_(rec[h]); }));
+    }
+    lines.forEach(function (l) {
+      var qd = Number(l.qty_diff || 0);
+      create_('InventoryAdjustmentItems', { adjustment_id: id, item_id: l.item_id, description: l.description || '', on_hand: Number(l.on_hand || 0), new_qty: Number(l.new_qty || 0), qty_diff: qd, cost: Number(l.cost || 0), value_diff: Number(l.value_diff || 0) });
+      if (qd !== 0) create_('StockMovements', { date: date, item_id: l.item_id, type: qd > 0 ? 'in' : 'out', qty: Math.abs(qd), reference_type: 'adjustment', reference_id: id, notes: no });
+    });
+    if (Math.abs(totalValue) > 0.001 && d.adjustment_account_id) {
+      var inv = acctId_('inventory');
+      var jlines = totalValue > 0
+        ? [{ account_id: inv, debit: totalValue, credit: 0 }, { account_id: d.adjustment_account_id, debit: 0, credit: totalValue }]
+        : [{ account_id: d.adjustment_account_id, debit: -totalValue, credit: 0 }, { account_id: inv, debit: 0, credit: -totalValue }];
+      try { postEntry_({ date: date, memo: 'Inventory adjustment ' + no, source_type: 'adjustment', source_id: id, created_by: userFromToken_(p.token), lines: jlines }); } catch (e) {}
+    }
+    return { id: id, number: no };
+  } finally { lock.releaseLock(); }
+}
+function inventoryAdjustmentDetail_(id) {
+  var record = get_('InventoryAdjustments', id); if (!record) throw new Error('Adjustment not found.');
+  var items = rows_('InventoryAdjustmentItems').filter(function (r) { return String(r.adjustment_id) === String(id); }).map(strip_);
+  return { record: record, items: items };
+}
+function deleteInventoryAdjustment_(id) { update_('InventoryAdjustments', id, { status: 'deleted' }); deleteWhere_('InventoryAdjustmentItems', 'adjustment_id', id); deleteWhere_('StockMovements', 'reference_id', id); reverseSource_('adjustment', id); return { id: id, deleted: true }; }
+
+// =====================================================================
+//  CLAIMS  (customer warranty/return record; non-posting, no stock)
+// =====================================================================
+function saveClaim_(p) {
+  var d = p.data || {}; var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = (d.lines || []).filter(function (l) { return l.item_id || l.description; });
+    var id = p.id, no;
+    if (p.id) {
+      var ex = rows_('Claims').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Claim not found.');
+      no = ex.claim_no;
+      deleteWhere_('ClaimItems', 'claim_id', p.id);
+      update_('Claims', p.id, { date: d.date || ex.date, customer_id: d.customer_id || '', store_id: d.store_id || '', reference_no: d.reference_no || '', description: d.description || '' });
+    } else {
+      no = incrementCounter_('claim'); id = newId_();
+      var rec = { id: id, claim_no: no, date: d.date || new Date().toISOString().slice(0, 10), customer_id: d.customer_id || '', store_id: d.store_id || '', reference_no: d.reference_no || '', description: d.description || '', status: 'open', created_by: userFromToken_(p.token), created_at: new Date().toISOString() };
+      sheet_('Claims').appendRow(SCHEMA.Claims.map(function (h) { return safeCell_(rec[h]); }));
+    }
+    lines.forEach(function (l) { create_('ClaimItems', { claim_id: id, item_id: l.item_id || '', description: l.description || '', serial_no: l.serial_no || '', qty: Number(l.qty || 0), unit: l.unit || '' }); });
+    return { id: id, number: no };
+  } finally { lock.releaseLock(); }
+}
+function claimDetail_(id) {
+  var record = get_('Claims', id); if (!record) throw new Error('Claim not found.');
+  var items = rows_('ClaimItems').filter(function (r) { return String(r.claim_id) === String(id); }).map(strip_);
+  var customer = record.customer_id ? get_('Customers', record.customer_id) : null;
+  return { record: record, items: items, customer: customer };
+}
+function deleteClaim_(id) { update_('Claims', id, { status: 'deleted' }); deleteWhere_('ClaimItems', 'claim_id', id); return { id: id, deleted: true }; }

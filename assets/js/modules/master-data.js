@@ -67,12 +67,14 @@ Router.register('sales-representatives', (m) => CRUD.page(m, {
 Router.register('suppliers', (m) => CRUD.page(m, {
   entity: 'Suppliers', title: 'Suppliers', singular: 'Supplier',
   columns: [
+    { key: 'code',            label: 'Code' },
     { key: 'name',            label: 'Name' },
     { key: 'phone',           label: 'Phone' },
     { key: 'email',           label: 'Email' },
     { key: 'opening_balance', label: 'Opening Balance', type: 'money' }
   ],
   fields: [
+    { key: 'code',            label: 'Code' },
     { key: 'name',            label: 'Supplier name', required: true, wide: true },
     { key: 'phone',           label: 'Phone' },
     { key: 'email',           label: 'Email' },

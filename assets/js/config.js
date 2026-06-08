@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "1.8 (Phase 3 — Accounts)",
+  VERSION: "1.9 (Phase 4 — Purchasing)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -109,5 +109,5 @@ window.ABS_CONFIG = {
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill"]
 };

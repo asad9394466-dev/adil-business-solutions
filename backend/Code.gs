@@ -30,7 +30,11 @@ var SCHEMA = {
   PriceLists:     ['id','list_date','list_type','list_image','status','created_at'],
   Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at'],
   Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
-  Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at'],
+  Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at','code'],
+  PurchaseOrders:     ['id','po_no','date','supplier_id','store_id','description','reference_no','subtotal','discount','total','status','created_by','created_at'],
+  PurchaseOrderItems: ['id','po_id','item_id','description','qty','unit','cost','discount','line_total'],
+  Bills:              ['id','bill_no','bill_type','date','due_date','supplier_id','store_id','po_id','reference_no','description','subtotal','discount','discount_type','shipping_charges','total','paid','balance','status','created_by','created_at'],
+  BillItems:          ['id','bill_id','item_id','description','warehouse','qty','unit','multiplier','cost','discount','line_total'],
   Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at','due_date','reference_no'],
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
   SalesReceipts:     ['id','receipt_no','date','customer_id','customer_name','subtotal','discount','tax','total','paid','balance','status','notes','sales_rep','order_type','created_by','created_at'],
@@ -129,6 +133,8 @@ function migrate() {
   upsertCounter_('sales_order', 'SO-1-');
   upsertCounter_('journal', 'JE-');
   upsertCounter_('deposit', 'DEP-');
+  upsertCounter_('purchase_order', 'PO-1-');
+  upsertCounter_('bill', 'B-1-');
 
   // seed the standard chart of accounts (only if empty)
   if (sheet_('Accounts').getLastRow() <= 1) {
@@ -224,6 +230,14 @@ function handle_(e) {
       case 'recordDeposit': return out_({ ok: true, data: recordDeposit_(p) });
       case 'depositsList': return out_({ ok: true, data: depositsList_() });
       case 'paymentsList': return out_({ ok: true, data: paymentsList_() });
+      case 'savePurchaseOrder': return out_({ ok: true, data: savePurchaseOrder_(p) });
+      case 'purchaseOrderDetail': return out_({ ok: true, data: purchaseOrderDetail_(p.id) });
+      case 'deletePurchaseOrder': return out_({ ok: true, data: deletePurchaseOrder_(p.id) });
+      case 'setPurchaseOrderStatus': return out_({ ok: true, data: setPurchaseOrderStatus_(p.id, p.status) });
+      case 'saveBill': return out_({ ok: true, data: saveBill_(p) });
+      case 'billDetail': return out_({ ok: true, data: billDetail_(p.id) });
+      case 'deleteBill': return out_({ ok: true, data: deleteBill_(p.id) });
+      case 'supplierBalance': return out_({ ok: true, data: { balance: supplierBalance_(p.supplier_id, p.exclude_id) } });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -870,4 +884,186 @@ function out_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================================
+//  PURCHASE ORDERS
+//  Non-posting document: no journal entry, no stock movement. A PO is a
+//  request to a supplier; inventory/AP only move when it becomes a Bill.
+// =====================================================================
+function writePoLines_(poId, lines) {
+  (lines || []).forEach(function (ln) {
+    create_('PurchaseOrderItems', {
+      po_id: poId, item_id: ln.item_id || '', description: ln.description || '',
+      qty: Number(ln.qty || 0), unit: ln.unit || '', cost: Number(ln.cost || 0),
+      discount: ln.discount || '', line_total: Number(ln.line_total || 0)
+    });
+  });
+}
+
+function savePurchaseOrder_(p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = d.lines || [];
+    var subtotal = lines.reduce(function (s, l) { return s + Number(l.line_total || 0); }, 0);
+    var total = Number(d.total != null ? d.total : subtotal);
+    if (p.id) {
+      var po = rows_('PurchaseOrders').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!po) throw new Error('Purchase Order not found.');
+      deleteWhere_('PurchaseOrderItems', 'po_id', p.id);
+      update_('PurchaseOrders', p.id, {
+        date: d.date || po.date, supplier_id: d.supplier_id || '', store_id: d.store_id || '',
+        description: d.description || '', reference_no: d.reference_no || '',
+        subtotal: subtotal, discount: Number(d.discount || 0), total: total
+      });
+      writePoLines_(p.id, lines);
+      return { id: p.id, po_no: po.po_no };
+    }
+    var poNo = incrementCounter_('purchase_order');
+    var id = newId_();
+    var rec = {
+      id: id, po_no: poNo, date: d.date || new Date().toISOString().slice(0, 10),
+      supplier_id: d.supplier_id || '', store_id: d.store_id || '', description: d.description || '',
+      reference_no: d.reference_no || '', subtotal: subtotal, discount: Number(d.discount || 0),
+      total: total, status: 'open', created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+    };
+    sheet_('PurchaseOrders').appendRow(SCHEMA.PurchaseOrders.map(function (h) { return safeCell_(rec[h]); }));
+    writePoLines_(id, lines);
+    return { id: id, po_no: poNo };
+  } finally { lock.releaseLock(); }
+}
+
+function purchaseOrderDetail_(id) {
+  var po = get_('PurchaseOrders', id);
+  if (!po) throw new Error('Purchase Order not found.');
+  var items = rows_('PurchaseOrderItems').filter(function (r) { return String(r.po_id) === String(id); }).map(strip_);
+  var supplier = po.supplier_id ? get_('Suppliers', po.supplier_id) : null;
+  return { po: po, items: items, supplier: supplier };
+}
+
+function deletePurchaseOrder_(id) {
+  update_('PurchaseOrders', id, { status: 'deleted' });
+  deleteWhere_('PurchaseOrderItems', 'po_id', id);
+  return { id: id, deleted: true };
+}
+
+function setPurchaseOrderStatus_(id, status) {
+  if (['open', 'closed', 'rejected'].indexOf(String(status)) === -1) throw new Error('Invalid status.');
+  update_('PurchaseOrders', id, { status: status });
+  return { id: id, status: status };
+}
+
+// =====================================================================
+//  BILLS
+//  Posting document. A normal Bill records a purchase on credit:
+//     Dr Inventory Asset      Cr Accounts Payable
+//  and moves stock IN. A "Credit (Normal)" bill is a supplier return:
+//     Dr Accounts Payable     Cr Inventory Asset   (stock OUT)
+// =====================================================================
+function writeBillLines_(billId, billNo, lines, dateStr, billType) {
+  (lines || []).forEach(function (ln) {
+    create_('BillItems', {
+      bill_id: billId, item_id: ln.item_id || '', description: ln.description || '',
+      warehouse: ln.warehouse || '', qty: Number(ln.qty || 0), unit: ln.unit || '',
+      multiplier: Number(ln.multiplier || 1), cost: Number(ln.cost || 0),
+      discount: ln.discount || '', line_total: Number(ln.line_total || 0)
+    });
+    if (ln.item_id) {
+      create_('StockMovements', {
+        date: dateStr || new Date().toISOString().slice(0, 10), item_id: ln.item_id,
+        type: billType === 'Credit' ? 'out' : 'in',
+        qty: Number(ln.qty || 0) * Number(ln.multiplier || 1),
+        reference_type: 'bill', reference_id: billId, notes: billNo
+      });
+    }
+  });
+}
+
+function postBillJournal_(id, no, rec, token) {
+  var total = Number(rec.total || 0); if (total <= 0) return;
+  var inv = acctId_('inventory'), ap = acctId_('ap');
+  var lines = (rec.bill_type === 'Credit')
+    ? [{ account_id: ap, debit: total, credit: 0 }, { account_id: inv, debit: 0, credit: total }]
+    : [{ account_id: inv, debit: total, credit: 0 }, { account_id: ap, debit: 0, credit: total }];
+  try {
+    postEntry_({ date: rec.date, memo: (rec.bill_type === 'Credit' ? 'Supplier credit ' : 'Bill ') + no,
+      source_type: 'bill', source_id: id, created_by: userFromToken_(token), lines: lines });
+  } catch (e) { /* never block the document on a posting hiccup */ }
+}
+
+function saveBill_(p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = d.lines || [];
+    var subtotal = lines.reduce(function (s, l) { return s + Number(l.line_total || 0); }, 0);
+    var disc = Number(d.discount || 0);
+    var shipping = Number(d.shipping_charges || 0);
+    var total = Number(d.total != null ? d.total : (subtotal - disc + shipping));
+    var billType = d.bill_type === 'Credit' ? 'Credit' : 'Bill';
+    if (p.id) {
+      var bill = rows_('Bills').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!bill) throw new Error('Bill not found.');
+      deleteWhere_('BillItems', 'bill_id', p.id);
+      deleteWhere_('StockMovements', 'reference_id', p.id);
+      reverseSource_('bill', p.id);
+      var paid = Number(bill.paid || 0);
+      update_('Bills', p.id, {
+        bill_type: billType, date: d.date || bill.date, due_date: d.due_date || bill.due_date || '',
+        supplier_id: d.supplier_id || '', store_id: d.store_id || '', po_id: d.po_id || '',
+        reference_no: d.reference_no || '', description: d.description || '',
+        subtotal: subtotal, discount: disc, discount_type: d.discount_type || '',
+        shipping_charges: shipping, total: total, balance: total - paid,
+        status: paid >= total ? 'paid' : (paid > 0 ? 'partial' : 'unpaid')
+      });
+      writeBillLines_(p.id, bill.bill_no, lines, d.date || bill.date, billType);
+      postBillJournal_(p.id, bill.bill_no, get_('Bills', p.id), p.token);
+      return { id: p.id, bill_no: bill.bill_no };
+    }
+    var billNo = incrementCounter_('bill');
+    var id = newId_();
+    var rec = {
+      id: id, bill_no: billNo, bill_type: billType,
+      date: d.date || new Date().toISOString().slice(0, 10), due_date: d.due_date || '',
+      supplier_id: d.supplier_id || '', store_id: d.store_id || '', po_id: d.po_id || '',
+      reference_no: d.reference_no || '', description: d.description || '',
+      subtotal: subtotal, discount: disc, discount_type: d.discount_type || '',
+      shipping_charges: shipping, total: total, paid: 0, balance: total,
+      status: total <= 0 ? 'paid' : 'unpaid', created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+    };
+    sheet_('Bills').appendRow(SCHEMA.Bills.map(function (h) { return safeCell_(rec[h]); }));
+    writeBillLines_(id, billNo, lines, rec.date, billType);
+    postBillJournal_(id, billNo, rec, p.token);
+    return { id: id, bill_no: billNo };
+  } finally { lock.releaseLock(); }
+}
+
+function billDetail_(id) {
+  var bill = get_('Bills', id);
+  if (!bill) throw new Error('Bill not found.');
+  var items = rows_('BillItems').filter(function (r) { return String(r.bill_id) === String(id); }).map(strip_);
+  var supplier = bill.supplier_id ? get_('Suppliers', bill.supplier_id) : null;
+  return { bill: bill, items: items, supplier: supplier };
+}
+
+function deleteBill_(id) {
+  update_('Bills', id, { status: 'deleted' });
+  deleteWhere_('BillItems', 'bill_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  reverseSource_('bill', id);
+  return { id: id, deleted: true };
+}
+
+// net payable to a supplier (bills minus supplier credits), open balances only
+function supplierBalance_(supplierId, excludeId) {
+  if (!supplierId) return 0;
+  return rows_('Bills').filter(function (r) {
+    return String(r.supplier_id) === String(supplierId)
+      && String(r.status) !== 'deleted'
+      && String(r.id) !== String(excludeId || '');
+  }).reduce(function (s, r) {
+    var sign = r.bill_type === 'Credit' ? -1 : 1;
+    return s + sign * Number(r.balance || 0);
+  }, 0);
 }

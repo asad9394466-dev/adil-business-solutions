@@ -352,3 +352,11 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
   .invoice-doc { box-shadow: none; border: none; max-width: none; padding: 0; margin: 0; }
   .card { box-shadow: none; border: none; }
 }
+
+/* --- Purchasing (Phase 4): supplier+add control, bill type radios --- */
+.input-with-btn { display: flex; gap: 6px; align-items: stretch; }
+.input-with-btn select { flex: 1 1 auto; }
+.input-with-btn .btn { padding: 0 12px; line-height: 1; font-size: 18px; }
+.radio-row { display: flex; gap: 24px; margin-bottom: 14px; }
+.radio-row label { font-weight: normal; display: inline-flex; align-items: center; gap: 6px; }
+.filter-tabs .ftab b { margin-left: 6px; opacity: .7; font-weight: 600; }

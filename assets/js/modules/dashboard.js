@@ -30,9 +30,11 @@ Router.register("home", async (mount) => {
 
     <div class="card">
       <div class="card-head"><h2>Welcome</h2></div>
-      <p class="muted">This is Phase 0 — the foundation. The shell, login and Google Sheets
-      backend are wired up. Once you confirm the connection above is green, we move on to
-      Phase 1 (Items, Customers, Suppliers).</p>
+      <p class="muted">Adil Business Solutions is live and well past the foundation stage.
+      The shell, login and Google Sheets backend are wired up, and the core modules are built:
+      Items, Customers &amp; Suppliers; Invoices and Sales Receipts; the full double-entry
+      Accounts engine (Chart of Accounts, journal, payments, deposits, transfers); and now
+      <strong>Purchasing</strong> — Purchase Orders and Bills. Use the menu to jump into any module.</p>
     </div>`;
 
   // live connection test

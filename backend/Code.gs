@@ -35,6 +35,12 @@ var SCHEMA = {
   PurchaseOrderItems: ['id','po_id','item_id','description','qty','unit','cost','discount','line_total'],
   Bills:              ['id','bill_no','bill_type','date','due_date','supplier_id','store_id','po_id','reference_no','description','subtotal','discount','discount_type','shipping_charges','total','paid','balance','status','created_by','created_at'],
   BillItems:          ['id','bill_id','item_id','description','warehouse','qty','unit','multiplier','cost','discount','line_total'],
+  SalesOrders:        ['id','so_no','date','customer_id','subtotal','discount','tax','total','status','notes','due_date','reference_no','created_by','created_at'],
+  SalesOrderItems:    ['id','so_id','item_id','description','qty','unit_price','discount','line_total'],
+  Quotations:         ['id','quote_no','date','customer_id','subtotal','discount','tax','total','status','notes','due_date','reference_no','created_by','created_at'],
+  QuotationItems:     ['id','quote_id','item_id','description','qty','unit_price','discount','line_total'],
+  CreditMemos:        ['id','memo_no','date','customer_id','subtotal','discount','tax','total','status','notes','reference_no','created_by','created_at'],
+  CreditMemoItems:    ['id','memo_id','item_id','description','qty','unit_price','discount','line_total'],
   Invoices:       ['id','invoice_no','date','customer_id','subtotal','discount','tax','total','paid','balance','status','notes','created_by','created_at','due_date','reference_no'],
   InvoiceItems:   ['id','invoice_id','item_id','description','qty','unit_price','discount','line_total'],
   SalesReceipts:     ['id','receipt_no','date','customer_id','customer_name','subtotal','discount','tax','total','paid','balance','status','notes','sales_rep','order_type','created_by','created_at'],
@@ -135,6 +141,7 @@ function migrate() {
   upsertCounter_('deposit', 'DEP-');
   upsertCounter_('purchase_order', 'PO-1-');
   upsertCounter_('bill', 'B-1-');
+  upsertCounter_('credit_memo', 'CM-1-');
 
   // seed the standard chart of accounts (only if empty)
   if (sheet_('Accounts').getLastRow() <= 1) {
@@ -238,6 +245,18 @@ function handle_(e) {
       case 'billDetail': return out_({ ok: true, data: billDetail_(p.id) });
       case 'deleteBill': return out_({ ok: true, data: deleteBill_(p.id) });
       case 'supplierBalance': return out_({ ok: true, data: { balance: supplierBalance_(p.supplier_id, p.exclude_id) } });
+      case 'createSalesOrder': return out_({ ok: true, data: saveSimpleSalesDoc_('SalesOrders','SalesOrderItems','sales_order','so_no','so_id',p) });
+      case 'updateSalesOrder': return out_({ ok: true, data: saveSimpleSalesDoc_('SalesOrders','SalesOrderItems','sales_order','so_no','so_id',p) });
+      case 'salesOrderDetail': return out_({ ok: true, data: simpleDocDetail_('SalesOrders','SalesOrderItems','so_id',p.id) });
+      case 'deleteSalesOrder': return out_({ ok: true, data: deleteSimpleDoc_('SalesOrders','SalesOrderItems','so_id',p.id) });
+      case 'createQuotation': return out_({ ok: true, data: saveSimpleSalesDoc_('Quotations','QuotationItems','quotation','quote_no','quote_id',p) });
+      case 'updateQuotation': return out_({ ok: true, data: saveSimpleSalesDoc_('Quotations','QuotationItems','quotation','quote_no','quote_id',p) });
+      case 'quotationDetail': return out_({ ok: true, data: simpleDocDetail_('Quotations','QuotationItems','quote_id',p.id) });
+      case 'deleteQuotation': return out_({ ok: true, data: deleteSimpleDoc_('Quotations','QuotationItems','quote_id',p.id) });
+      case 'createCreditMemo': return out_({ ok: true, data: saveCreditMemo_(p) });
+      case 'updateCreditMemo': return out_({ ok: true, data: saveCreditMemo_(p) });
+      case 'creditMemoDetail': return out_({ ok: true, data: simpleDocDetail_('CreditMemos','CreditMemoItems','memo_id',p.id) });
+      case 'deleteCreditMemo': return out_({ ok: true, data: deleteCreditMemo_(p.id) });
       default:           return out_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -284,8 +303,17 @@ function hash_(username, password) {
 // =====================================================================
 function sheet_(entity) {
   if (!SCHEMA[entity]) throw new Error('Unknown entity: ' + entity);
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(entity);
-  if (!sh) throw new Error('Tab "' + entity + '" not found. Run setup() first.');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(entity);
+  if (!sh) {
+    // Create the tab on demand so a freshly added module works even if
+    // migrate() has not been run yet for it.
+    sh = ss.insertSheet(entity);
+    var headers = SCHEMA[entity];
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
   return sh;
 }
 
@@ -388,6 +416,12 @@ function nextNumber_(name) {
   finally { lock.releaseLock(); }
 }
 
+// default prefixes so a counter created on first use still numbers correctly
+var COUNTER_PREFIX = {
+  invoice: 'INV-1-', sales_receipt: 'SAL-1-', quotation: 'QUO-1-', sales_order: 'SO-1-',
+  credit_memo: 'CM-1-', journal: 'JE-', deposit: 'DEP-', purchase_order: 'PO-1-', bill: 'B-1-'
+};
+
 // no-lock version, used inside operations that already hold the lock
 function incrementCounter_(name) {
   var sh = sheet_('Counters');
@@ -399,8 +433,9 @@ function incrementCounter_(name) {
       return (values[i][2] || '') + String(next).padStart(5, '0');
     }
   }
-  sh.appendRow([name, 1, '']);
-  return String(1).padStart(5, '0');
+  var prefix = COUNTER_PREFIX[name] || '';
+  sh.appendRow([name, 1, prefix]);
+  return prefix + String(1).padStart(5, '0');
 }
 
 // =====================================================================
@@ -1066,4 +1101,128 @@ function supplierBalance_(supplierId, excludeId) {
     var sign = r.bill_type === 'Credit' ? -1 : 1;
     return s + sign * Number(r.balance || 0);
   }, 0);
+}
+
+// =====================================================================
+//  SALES ORDERS & QUOTATIONS  (non-posting customer documents)
+//  Both share the invoice-style line structure but never touch the
+//  ledger or stock — they are commitments, not transactions.
+// =====================================================================
+function writeSimpleLines_(itemsEntity, fk, docId, lines) {
+  (lines || []).forEach(function (ln) {
+    var rec = { item_id: ln.item_id || '', description: ln.description || '',
+      qty: Number(ln.qty || 0), unit_price: Number(ln.unit_price || 0),
+      discount: ln.discount || '', line_total: Number(ln.line_total || 0) };
+    rec[fk] = docId;
+    create_(itemsEntity, rec);
+  });
+}
+
+function saveSimpleSalesDoc_(entity, itemsEntity, counterName, numberField, fk, p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = d.lines || [];
+    var subtotal = lines.reduce(function (s, l) { return s + Number(l.line_total || 0); }, 0);
+    var total = Number(d.total != null ? d.total : subtotal);
+    if (p.id) {
+      var ex = rows_(entity).filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Document not found.');
+      deleteWhere_(itemsEntity, fk, p.id);
+      update_(entity, p.id, {
+        date: d.date || ex.date, customer_id: d.customer_id || '', subtotal: subtotal,
+        discount: Number(d.discount || 0), tax: 0, total: total,
+        due_date: d.due_date || ex.due_date || '', reference_no: d.reference_no || '', notes: d.notes || ''
+      });
+      writeSimpleLines_(itemsEntity, fk, p.id, lines);
+      return { id: p.id, number: ex[numberField] };
+    }
+    var no = incrementCounter_(counterName);
+    var id = newId_();
+    var rec = {
+      id: id, date: d.date || new Date().toISOString().slice(0, 10), customer_id: d.customer_id || '',
+      subtotal: subtotal, discount: Number(d.discount || 0), tax: 0, total: total, status: 'open',
+      notes: d.notes || '', due_date: d.due_date || '', reference_no: d.reference_no || '',
+      created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+    };
+    rec[numberField] = no;
+    sheet_(entity).appendRow(SCHEMA[entity].map(function (h) { return safeCell_(rec[h]); }));
+    writeSimpleLines_(itemsEntity, fk, id, lines);
+    return { id: id, number: no };
+  } finally { lock.releaseLock(); }
+}
+
+function simpleDocDetail_(entity, itemsEntity, fk, id) {
+  var record = get_(entity, id);
+  if (!record) throw new Error('Document not found.');
+  var items = rows_(itemsEntity).filter(function (r) { return String(r[fk]) === String(id); }).map(strip_);
+  var customer = record.customer_id ? get_('Customers', record.customer_id) : null;
+  return { record: record, items: items, customer: customer };
+}
+
+function deleteSimpleDoc_(entity, itemsEntity, fk, id) {
+  update_(entity, id, { status: 'deleted' });
+  deleteWhere_(itemsEntity, fk, id);
+  return { id: id, deleted: true };
+}
+
+// =====================================================================
+//  CREDIT MEMO / REFUNDS  (posting: reverses a sale)
+//     Dr Sales      Cr Accounts Receivable      and stock back IN
+// =====================================================================
+function saveCreditMemo_(p) {
+  var d = p.data || {};
+  var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var lines = d.lines || [];
+    var subtotal = lines.reduce(function (s, l) { return s + Number(l.line_total || 0); }, 0);
+    var total = Number(d.total != null ? d.total : subtotal);
+    var existingNo = null, id = p.id;
+    if (p.id) {
+      var ex = rows_('CreditMemos').filter(function (r) { return String(r.id) === String(p.id); })[0];
+      if (!ex) throw new Error('Credit memo not found.');
+      existingNo = ex.memo_no;
+      deleteWhere_('CreditMemoItems', 'memo_id', p.id);
+      deleteWhere_('StockMovements', 'reference_id', p.id);
+      reverseSource_('credit_memo', p.id);
+      update_('CreditMemos', p.id, {
+        date: d.date || ex.date, customer_id: d.customer_id || '', subtotal: subtotal,
+        discount: Number(d.discount || 0), tax: 0, total: total,
+        reference_no: d.reference_no || '', notes: d.notes || ''
+      });
+    } else {
+      existingNo = incrementCounter_('credit_memo');
+      id = newId_();
+      var rec = {
+        id: id, memo_no: existingNo, date: d.date || new Date().toISOString().slice(0, 10),
+        customer_id: d.customer_id || '', subtotal: subtotal, discount: Number(d.discount || 0),
+        tax: 0, total: total, status: 'open', notes: d.notes || '', reference_no: d.reference_no || '',
+        created_by: userFromToken_(p.token), created_at: new Date().toISOString()
+      };
+      sheet_('CreditMemos').appendRow(SCHEMA.CreditMemos.map(function (h) { return safeCell_(rec[h]); }));
+    }
+    // lines + stock back in
+    (lines || []).forEach(function (ln) {
+      create_('CreditMemoItems', { memo_id: id, item_id: ln.item_id || '', description: ln.description || '',
+        qty: Number(ln.qty || 0), unit_price: Number(ln.unit_price || 0), discount: ln.discount || '', line_total: Number(ln.line_total || 0) });
+      if (ln.item_id) create_('StockMovements', { date: d.date || new Date().toISOString().slice(0, 10),
+        item_id: ln.item_id, type: 'in', qty: Number(ln.qty || 0), reference_type: 'credit_memo', reference_id: id, notes: existingNo });
+    });
+    if (total > 0) {
+      try {
+        postEntry_({ date: d.date, memo: 'Credit memo ' + existingNo, source_type: 'credit_memo', source_id: id,
+          created_by: userFromToken_(p.token),
+          lines: [{ account_id: acctId_('sales'), debit: total, credit: 0 }, { account_id: acctId_('ar'), debit: 0, credit: total }] });
+      } catch (e) {}
+    }
+    return { id: id, number: existingNo };
+  } finally { lock.releaseLock(); }
+}
+
+function deleteCreditMemo_(id) {
+  update_('CreditMemos', id, { status: 'deleted' });
+  deleteWhere_('CreditMemoItems', 'memo_id', id);
+  deleteWhere_('StockMovements', 'reference_id', id);
+  reverseSource_('credit_memo', id);
+  return { id: id, deleted: true };
 }

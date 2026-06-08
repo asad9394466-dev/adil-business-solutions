@@ -59,6 +59,30 @@ const DOC = {
     createAction: 'createSalesReceipt', updateAction: 'updateSalesReceipt', detailAction: 'salesReceiptDetail', deleteAction: 'deleteSalesReceipt',
     hasDueDate: false, hasReference: false, hasBalanceForward: false,
     walkIn: true, customerRequired: false, canPay: false, statusTabs: false, docTitle: 'SALES RECEIPT'
+  },
+  salesorder: {
+    key: 'salesorder', entity: 'SalesOrders', numberField: 'so_no', numberLabel: 'SO No',
+    title: 'Sales Order', singular: 'Sales Order', plural: 'Sales Orders',
+    listRoute: 'sales-orders', newRoute: 'new-sales-order', editRoute: 'edit-sales-order', detailRoute: 'edit-sales-order',
+    createAction: 'createSalesOrder', updateAction: 'updateSalesOrder', detailAction: 'salesOrderDetail', deleteAction: 'deleteSalesOrder',
+    hasDueDate: true, hasReference: true, hasBalanceForward: false,
+    walkIn: false, customerRequired: true, canPay: false, statusTabs: false, docTitle: 'SALES ORDER'
+  },
+  quotation: {
+    key: 'quotation', entity: 'Quotations', numberField: 'quote_no', numberLabel: 'Quotation No',
+    title: 'Quotation', singular: 'Quotation', plural: 'Quotations',
+    listRoute: 'quotations', newRoute: 'new-quotation', editRoute: 'edit-quotation', detailRoute: 'edit-quotation',
+    createAction: 'createQuotation', updateAction: 'updateQuotation', detailAction: 'quotationDetail', deleteAction: 'deleteQuotation',
+    hasDueDate: true, hasReference: true, hasBalanceForward: false,
+    walkIn: false, customerRequired: true, canPay: false, statusTabs: false, docTitle: 'QUOTATION'
+  },
+  creditmemo: {
+    key: 'creditmemo', entity: 'CreditMemos', numberField: 'memo_no', numberLabel: 'Credit Memo No',
+    title: 'Credit Memo', singular: 'Credit Memo', plural: 'Credit Memos',
+    listRoute: 'credit-memos', newRoute: 'new-credit-memo', editRoute: 'edit-credit-memo', detailRoute: 'edit-credit-memo',
+    createAction: 'createCreditMemo', updateAction: 'updateCreditMemo', detailAction: 'creditMemoDetail', deleteAction: 'deleteCreditMemo',
+    hasDueDate: false, hasReference: true, hasBalanceForward: false,
+    walkIn: false, customerRequired: true, canPay: false, statusTabs: false, docTitle: 'CREDIT MEMO'
   }
 };
 
@@ -175,7 +199,7 @@ const SalesEditor = {
     catch (e) { UI.loading(false); salesErr(mount, doc.singular, e.message); return; }
     UI.loading(false);
 
-    const rec = existing ? (existing.invoice || existing.receipt) : {};
+    const rec = existing ? (existing.invoice || existing.receipt || existing.record) : {};
     const exItems = existing ? existing.items : [];
     const today = new Date().toISOString().slice(0, 10);
     const state = {
@@ -210,10 +234,6 @@ const SalesEditor = {
       <div class="page-head">
         <h1>${id ? 'Edit ' + UI.escape(doc.singular) + ' ' + UI.escape(rec[doc.numberField] || '') : 'New ' + UI.escape(doc.singular)}</h1>
         <span class="page-sub">${id ? '' : doc.numberLabel + ' assigned on save'}</span>
-        <div class="page-actions">
-          <button class="btn" id="s-cancel">Cancel</button>
-          <button class="btn btn--primary" id="s-save">${id ? 'Save changes' : 'Create ' + doc.singular.toLowerCase()}</button>
-        </div>
       </div>
 
       <div class="card">
@@ -254,6 +274,11 @@ const SalesEditor = {
           <div class="totals-line"><span>Balance Forward</span><span id="t-bf" class="num">0.00</span></div>` : ''}
           <div class="totals-line totals-grand"><span>Total Amount Due</span><span id="t-total" class="num">0.00</span></div>
         </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn" id="s-cancel">Cancel</button>
+        <button class="btn btn--primary" id="s-save">${id ? 'Save changes' : 'Create ' + doc.singular.toLowerCase()}</button>
       </div>`;
 
     if (state.discType === 'Discount Value') mount.querySelector('#s-disc-type').value = 'Discount Value';
@@ -543,6 +568,18 @@ Router.register('sales-receipts',      (m) => buildSalesList(m, DOC.receipt));
 Router.register('new-sales-receipt',   (m) => SalesEditor.open(m, DOC.receipt, null));
 Router.register('edit-sales-receipt',  (m, p) => SalesEditor.open(m, DOC.receipt, p.id));
 Router.register('sales-receipt-detail',(m, p) => buildSalesDetail(m, DOC.receipt, p.id));
+
+Router.register('sales-orders',        (m) => buildSalesList(m, DOC.salesorder));
+Router.register('new-sales-order',     (m) => SalesEditor.open(m, DOC.salesorder, null));
+Router.register('edit-sales-order',    (m, p) => SalesEditor.open(m, DOC.salesorder, p.id));
+
+Router.register('quotations',          (m) => buildSalesList(m, DOC.quotation));
+Router.register('new-quotation',       (m) => SalesEditor.open(m, DOC.quotation, null));
+Router.register('edit-quotation',      (m, p) => SalesEditor.open(m, DOC.quotation, p.id));
+
+Router.register('credit-memos',        (m) => buildSalesList(m, DOC.creditmemo));
+Router.register('new-credit-memo',     (m) => SalesEditor.open(m, DOC.creditmemo, null));
+Router.register('edit-credit-memo',    (m, p) => SalesEditor.open(m, DOC.creditmemo, p.id));
 
 async function buildAllTransactions(mount) {
   UI.loading(true);

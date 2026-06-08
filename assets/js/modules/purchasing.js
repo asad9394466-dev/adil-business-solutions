@@ -265,10 +265,6 @@ async function buildPOEditor(mount, id) {
     <div class="page-head">
       <h1>${id ? 'Edit Purchase Order ' + UI.escape(rec.po_no || '') : 'New Purchase Order'}</h1>
       <span class="page-sub">${id ? '' : 'PO No. assigned on save'}</span>
-      <div class="page-actions">
-        <button class="btn" id="po-cancel">Cancel</button>
-        <button class="btn btn--primary" id="po-save">${id ? 'Save changes' : 'Create purchase order'}</button>
-      </div>
     </div>
     <div class="card">
       <div class="form-grid">
@@ -295,6 +291,10 @@ async function buildPOEditor(mount, id) {
       <div class="totals-box">
         <div class="totals-line totals-grand"><span>Subtotal</span><span id="po-total" class="num">0.00</span></div>
       </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="po-cancel">Cancel</button>
+      <button class="btn btn--primary" id="po-save">${id ? 'Save changes' : 'Create purchase order'}</button>
     </div>`;
 
   const linesEl = mount.querySelector('#po-lines');
@@ -527,10 +527,6 @@ async function buildBillEditor(mount, id) {
     <div class="page-head">
       <h1>${id ? 'Edit Bill ' + UI.escape(rec.bill_no || '') : 'New Bill'}</h1>
       <span class="page-sub">${id ? '' : 'Bill No. assigned on save'}</span>
-      <div class="page-actions">
-        <button class="btn" id="b-cancel">Cancel</button>
-        <button class="btn btn--primary" id="b-save">${id ? 'Save changes' : 'Create bill'}</button>
-      </div>
     </div>
     <div class="card">
       <div class="radio-row">
@@ -573,6 +569,10 @@ async function buildBillEditor(mount, id) {
         </div>
         <div class="totals-line totals-grand"><span>Total</span><span id="bt-total" class="num">0.00</span></div>
       </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="b-cancel">Cancel</button>
+      <button class="btn btn--primary" id="b-save">${id ? 'Save changes' : 'Create bill'}</button>
     </div>`;
 
   if (state.discType === 'Discount Value') mount.querySelector('#b-disc-type').value = 'Discount Value';

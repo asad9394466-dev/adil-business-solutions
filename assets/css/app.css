@@ -360,3 +360,6 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 .radio-row { display: flex; gap: 24px; margin-bottom: 14px; }
 .radio-row label { font-weight: normal; display: inline-flex; align-items: center; gap: 6px; }
 .filter-tabs .ftab b { margin-left: 6px; opacity: .7; font-weight: 600; }
+
+/* --- bottom-right action bar for document editors --- */
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }

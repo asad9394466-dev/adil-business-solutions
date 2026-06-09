@@ -223,6 +223,8 @@ function handle_(e) {
       case 'delete':     return out_({ ok: true, data: del_(p.entity, p.id) });
       case 'nextNumber': return out_({ ok: true, data: { number: nextNumber_(p.name) } });
       case 'dashboard':  return out_({ ok: true, data: dashboard_() });
+      case 'salesSummary': return out_({ ok: true, data: salesSum_(p.from, p.to) });
+      case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
       case 'createInvoice': return out_({ ok: true, data: createInvoice_(p) });
       case 'updateInvoice': return out_({ ok: true, data: updateInvoice_(p) });
       case 'invoiceDetail': return out_({ ok: true, data: invoiceDetail_(p.id) });
@@ -382,6 +384,9 @@ function create_(entity, data) {
   if (entity === 'Users' && data && data.password) {
     data.password_hash = hash_(data.username || '', data.password);
   }
+  if (entity === 'Items' && (data.sku == null || String(data.sku).trim() === '')) {
+    data.sku = nextUpc_();
+  }
   var sh = sheet_(entity);
   var headers = SCHEMA[entity];
   var rec = {};
@@ -467,23 +472,97 @@ function incrementCounter_(name) {
 // =====================================================================
 //  DASHBOARD
 // =====================================================================
+function tz_() { return Session.getScriptTimeZone() || 'Asia/Karachi'; }
+function todayKey_() { return Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd'); }
+
+// normalise any stored date (Date object, ISO, dd-mm-yyyy, localized) to yyyy-MM-dd
+function dayKey_(v) {
+  if (v == null || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, tz_(), 'yyyy-MM-dd');
+  var s = String(v).trim();
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = s.match(/^(\d{2})-(\d{2})-(\d{4})/); if (m) return m[3] + '-' + m[2] + '-' + m[1];
+  var d = new Date(s); if (!isNaN(d.getTime())) return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd');
+  return s.slice(0, 10);
+}
+
+// Monday-anchored week range; offset 0 = this week, -1 = last week
+function weekRange_(offsetWeeks) {
+  var tz = tz_(), now = new Date();
+  var dow = Number(Utilities.formatDate(now, tz, 'u')); // 1=Mon .. 7=Sun
+  var monday = new Date(now.getTime() - (dow - 1) * 86400000 + offsetWeeks * 7 * 86400000);
+  var sunday = new Date(monday.getTime() + 6 * 86400000);
+  return { from: Utilities.formatDate(monday, tz, 'yyyy-MM-dd'), to: Utilities.formatDate(sunday, tz, 'yyyy-MM-dd') };
+}
+
+// total sales (invoices + receipts) with day-key between from..to inclusive
+function salesSum_(fromKey, toKey) {
+  var f = dayKey_(fromKey) || '0000-00-00', t = dayKey_(toKey) || '9999-99-99';
+  var sum = 0, count = 0;
+  ['Invoices', 'SalesReceipts'].forEach(function (e) {
+    list_(e, {}).forEach(function (r) {
+      var k = dayKey_(r.date);
+      if (k && k >= f && k <= t) { sum += Number(r.total || 0); count++; }
+    });
+  });
+  return { total: sum, count: count, from: f, to: t };
+}
+
 function dashboard_() {
-  var items = list_('Items', {});
-  var customers = list_('Customers', {});
-  var invoices = list_('Invoices', {});
-  var receipts = list_('SalesReceipts', {});
-  var today = new Date().toISOString().slice(0, 10);
-  var sum = function (arr) {
-    return arr.filter(function (i) { return String(i.date).slice(0, 10) === today; })
-              .reduce(function (s, i) { return s + Number(i.total || 0); }, 0);
-  };
+  var today = todayKey_();
+  var tw = weekRange_(0), lw = weekRange_(-1);
   return {
-    items_count: items.length,
-    customers_count: customers.length,
-    invoices_count: invoices.length,
-    todays_sales: sum(invoices) + sum(receipts),
-    low_stock_count: 0 // populated once live stock tracking lands (Phase 3)
+    items_count: list_('Items', {}).length,
+    customers_count: list_('Customers', {}).length,
+    low_stock_count: 0,
+    today_sales: salesSum_(today, today).total,
+    this_week_sales: salesSum_(tw.from, tw.to).total,
+    last_week_sales: salesSum_(lw.from, lw.to).total,
+    ranges: { today: { from: today, to: today }, this_week: tw, last_week: lw }
   };
+}
+
+function nameMap_(entity) {
+  var m = {}; rows_(entity).forEach(function (r) { m[String(r.id)] = r.name; }); return m;
+}
+
+// global document search by number / party name / reference
+function searchDocs_(q) {
+  q = String(q || '').trim().toLowerCase();
+  if (!q) return [];
+  var cust = nameMap_('Customers'), supp = nameMap_('Suppliers'), res = [];
+  function scan(entity, numField, partyField, names, label, route) {
+    list_(entity, {}).forEach(function (r) {
+      var num = String(r[numField] || ''), nm = names ? (names[String(r[partyField])] || '') : '';
+      if (num.toLowerCase().indexOf(q) !== -1 || nm.toLowerCase().indexOf(q) !== -1 || String(r.reference_no || '').toLowerCase().indexOf(q) !== -1) {
+        res.push({ type: label, id: r.id, number: num, name: nm, date: dayKey_(r.date), total: Number(r.total || 0), route: route });
+      }
+    });
+  }
+  scan('Invoices', 'invoice_no', 'customer_id', cust, 'Invoice', 'invoice-detail');
+  scan('SalesReceipts', 'receipt_no', 'customer_id', cust, 'Receipt', 'sales-receipt-detail');
+  scan('CreditMemos', 'memo_no', 'customer_id', cust, 'Credit Memo', 'edit-credit-memo');
+  scan('SalesOrders', 'so_no', 'customer_id', cust, 'Sales Order', 'edit-sales-order');
+  scan('Quotations', 'quote_no', 'customer_id', cust, 'Quotation', 'edit-quotation');
+  scan('Bills', 'bill_no', 'supplier_id', supp, 'Bill', 'edit-bill');
+  scan('PurchaseOrders', 'po_no', 'supplier_id', supp, 'Purchase Order', 'edit-purchase-order');
+  res.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  return res.slice(0, 25);
+}
+
+// numeric UPC/barcode generator, Diyar-style (1000001, 1000002, …)
+function nextUpc_() {
+  var sh = sheet_('Counters');
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === 'upc') {
+      var next = Number(values[i][1] || 0) + 1;
+      sh.getRange(i + 1, 2).setValue(next);
+      return String(1000000 + next);
+    }
+  }
+  sh.appendRow(['upc', 1, '']);
+  return String(1000001);
 }
 
 // =====================================================================

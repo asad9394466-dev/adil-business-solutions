@@ -463,6 +463,7 @@ async function buildSalesDetail(mount, doc, id) {
     <div class="card invoice-doc">
       <div class="inv-top">
         <div class="inv-company">
+          ${co.logo ? `<img src="${co.logo}" alt="" class="inv-logo">` : ''}
           <div class="inv-co-name">${UI.escape(co.name)}</div>
           <div class="inv-co-meta">${UI.escape(co.address || '')}<br>${UI.escape(co.phone || '')}${co.mobile ? ' · ' + UI.escape(co.mobile) : ''}${co.email ? ' · ' + UI.escape(co.email) : ''}</div>
         </div>
@@ -499,7 +500,7 @@ async function buildSalesDetail(mount, doc, id) {
       </div>
 
       ${rec.notes ? `<div class="inv-notes"><div class="inv-label">NOTES</div>${UI.escape(rec.notes)}</div>` : ''}
-      ${co.terms ? `<div class="inv-terms"><div class="inv-label">TERMS &amp; CONDITIONS</div>${UI.escape(co.terms)}</div>` : ''}
+      ${co.terms ? `<div class="inv-terms" dir="rtl"><div class="inv-label">TERMS &amp; CONDITIONS</div><div class="inv-terms-body">${UI.escape(co.terms)}</div></div>` : ''}
 
       ${payments.length ? `<div class="inv-payments no-print">
         <div class="inv-label">PAYMENTS</div>

@@ -28,19 +28,8 @@ const CompanySettings = {
     } catch (e) { return null; }
   },
 
-  // paint the saved logo into the sidebar / login brand marks
-  applyBrand() {
-    const co = window.ABS_CONFIG.COMPANY;
-    UI.$$('.brand-mark').forEach(el => {
-      if (co.logo) {
-        el.innerHTML = `<img src="${co.logo}" alt="" class="brand-logo">`;
-        el.classList.add('brand-mark--img');
-      } else {
-        el.classList.remove('brand-mark--img');
-        el.textContent = window.ABS_CONFIG.APP_SHORT;
-      }
-    });
-  }
+  // logo is used on printed invoices/receipts, not the sidebar
+  applyBrand() { /* intentionally no sidebar logo */ }
 };
 window.CompanySettings = CompanySettings;
 

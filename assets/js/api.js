@@ -56,6 +56,8 @@ const API = {
   ping()                       { return this.call("ping"); },
   login(username, password)    { return this.call("login", { username, password }); },
   dashboard()                  { return this.call("dashboard"); },
+  salesSummary(from, to)       { return this.call("salesSummary", { from, to }); },
+  searchDocuments(q)           { return this.call("searchDocuments", { q }); },
 
   list(entity, params = {})    { return this.call("list",   Object.assign({ entity }, params)); },
   get(entity, id)              { return this.call("get",    { entity, id }); },

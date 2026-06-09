@@ -75,7 +75,10 @@ const App = {
       <div class="app-main">
         <header class="topbar">
           <button id="menu-toggle" class="icon-btn" title="Menu">${UI.icon("menu")}</button>
-          <div class="topbar-title">${UI.escape(cfg.COMPANY.name)}</div>
+          <div class="topbar-search">
+            <input id="global-search" type="search" autocomplete="off" placeholder="Find invoices, bills, receipts, refunds…">
+            <div id="search-results" class="search-results"></div>
+          </div>
           <div class="topbar-right">
             <span class="user-chip">${UI.icon("users")} ${UI.escape(user.name || user.username || "User")}</span>
             <button id="logout-btn" class="icon-btn" title="Sign out">${UI.icon("logout")}</button>
@@ -90,6 +93,7 @@ const App = {
       Session.clear();
       this.showLogin();
     });
+    this.wireGlobalSearch();
     const sidebar = document.getElementById("sidebar");
     const scrim = document.getElementById("scrim");
     document.getElementById("menu-toggle").addEventListener("click", () => {
@@ -108,6 +112,43 @@ const App = {
 
     Router.init("#content");
     if (window.CompanySettings) CompanySettings.loadCompany();
+  },
+
+  wireGlobalSearch() {
+    const input = document.getElementById("global-search");
+    const panel = document.getElementById("search-results");
+    if (!input || !panel) return;
+    let timer = null, lastQ = "";
+    const hide = () => { panel.classList.remove("show"); panel.innerHTML = ""; };
+    const run = async (q) => {
+      try {
+        const rows = await API.searchDocuments(q);
+        if (input.value.trim() !== q) return; // stale
+        if (!rows.length) { panel.innerHTML = `<div class="search-empty">No matches for “${UI.escape(q)}”</div>`; panel.classList.add("show"); return; }
+        panel.innerHTML = rows.map(r => `
+          <a class="search-row" data-route="${UI.escape(r.route)}" data-id="${UI.escape(r.id)}">
+            <span class="search-type">${UI.escape(r.type)}</span>
+            <span class="search-main"><strong>${UI.escape(r.number)}</strong>${r.name ? " · " + UI.escape(r.name) : ""}</span>
+            <span class="search-meta">${UI.escape(UI.date(r.date))}${r.total ? " · " + UI.money(r.total) : ""}</span>
+          </a>`).join("");
+        panel.classList.add("show");
+        panel.querySelectorAll(".search-row").forEach(a => a.onclick = () => {
+          hide(); input.value = "";
+          Router.go(a.dataset.route + "?id=" + a.dataset.id);
+        });
+      } catch (e) { panel.innerHTML = `<div class="search-empty">${UI.escape(e.message)}</div>`; panel.classList.add("show"); }
+    };
+    input.addEventListener("input", () => {
+      const q = input.value.trim();
+      clearTimeout(timer);
+      if (q.length < 2) { hide(); return; }
+      if (q === lastQ) return; lastQ = q;
+      panel.innerHTML = `<div class="search-empty">Searching…</div>`; panel.classList.add("show");
+      timer = setTimeout(() => run(q), 250);
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".topbar-search")) hide();
+    });
   },
 
   buildNav(menu) {

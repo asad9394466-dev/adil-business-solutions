@@ -28,7 +28,7 @@ var SCHEMA = {
   Stores:         ['id','store_name','region_id','description','ecommerce_eligibility','status','created_at'],
   Warehouses:     ['id','warehouse_name','description','status','created_at'],
   PriceLists:     ['id','list_date','list_type','list_image','status','created_at'],
-  Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at'],
+  Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at','item_type','supplier_id','cogs_account_id','income_account_id','asset_account_id','purchase_description','sale_description','size','attributes','max_order_qty','commission','opening_qty'],
   Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
   Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at','code'],
   PurchaseOrders:     ['id','po_no','date','supplier_id','store_id','description','reference_no','subtotal','discount','total','status','created_by','created_at'],
@@ -225,6 +225,8 @@ function handle_(e) {
       case 'dashboard':  return out_({ ok: true, data: dashboard_() });
       case 'salesSummary': return out_({ ok: true, data: salesSum_(p.from, p.to) });
       case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
+      case 'itemCard': return out_({ ok: true, data: itemCard_(p.item_id) });
+      case 'updatePrices': return out_({ ok: true, data: updatePrices_(p.updates) });
       case 'createInvoice': return out_({ ok: true, data: createInvoice_(p) });
       case 'updateInvoice': return out_({ ok: true, data: updateInvoice_(p) });
       case 'invoiceDetail': return out_({ ok: true, data: invoiceDetail_(p.id) });
@@ -395,6 +397,9 @@ function create_(entity, data) {
   if (headers.indexOf('created_at') !== -1 && !rec.created_at) rec.created_at = new Date().toISOString();
   if (headers.indexOf('status') !== -1 && !rec.status) rec.status = 'active';
   sh.appendRow(headers.map(function (h) { return safeCell_(rec[h]); }));
+  if (entity === 'Items' && Number(rec.opening_qty) > 0) {
+    create_('StockMovements', { date: new Date().toISOString().slice(0, 10), item_id: rec.id, type: 'in', qty: Number(rec.opening_qty), reference_type: 'opening', reference_id: rec.id, notes: 'Opening stock' });
+  }
   return rec;
 }
 
@@ -1488,3 +1493,29 @@ function claimDetail_(id) {
   return { record: record, items: items, customer: customer };
 }
 function deleteClaim_(id) { update_('Claims', id, { status: 'deleted' }); deleteWhere_('ClaimItems', 'claim_id', id); return { id: id, deleted: true }; }
+
+// =====================================================================
+//  ITEM SEARCH (item card: stock on hand + movement history)
+// =====================================================================
+function itemCard_(itemId) {
+  var item = get_('Items', itemId);
+  if (!item) throw new Error('Item not found.');
+  var moves = rows_('StockMovements').filter(function (r) { return String(r.item_id) === String(itemId); })
+    .map(strip_).sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  return { item: item, on_hand: onHand_(itemId), movements: moves.slice(0, 50) };
+}
+
+// =====================================================================
+//  PRICE MANAGER (bulk update regular / wholesale prices)
+// =====================================================================
+function updatePrices_(updates) {
+  var n = 0;
+  (updates || []).forEach(function (u) {
+    if (!u.id) return;
+    var patch = {};
+    if (u.regular_price !== '' && u.regular_price != null) patch.regular_price = Number(u.regular_price);
+    if (u.wholesale_price !== '' && u.wholesale_price != null) patch.wholesale_price = Number(u.wholesale_price);
+    if (Object.keys(patch).length) { update_('Items', u.id, patch); n++; }
+  });
+  return { updated: n };
+}

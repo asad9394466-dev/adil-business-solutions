@@ -85,7 +85,7 @@ const CRUD = {
     let v = row[col.key];
     if (col.ref) {
       const o = (this.cache[col.ref] || []).find(x => String(x.id) === String(v));
-      v = o ? (o.name || o.text || '') : '';
+      v = o ? (o[col.labelKey] || o.name || o.text || '') : '';
     }
     if (col.type === 'money') return (v === '' || v == null) ? '' : UI.money(v);
     return v == null ? '' : String(v);
@@ -195,7 +195,7 @@ const CRUD = {
       input = `<textarea name="${f.key}" rows="2">${UI.escape(v)}</textarea>`;
     } else if (f.type === 'select') {
       let opts = f.options || [];
-      if (f.ref) opts = (await this.options(f.ref)).map(o => ({ value: o.id, label: o.name || o.text }));
+      if (f.ref) opts = (await this.options(f.ref)).map(o => ({ value: o.id, label: o[f.labelKey] || o.name || o.text }));
       const optsHtml = `<option value="">— none —</option>` + opts.map(o => {
         const val = (o.value !== undefined) ? o.value : o;
         const lab = (o.label !== undefined) ? o.label : o;

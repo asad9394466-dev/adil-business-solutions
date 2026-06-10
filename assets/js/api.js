@@ -13,11 +13,11 @@
 const Session = {
   key: "abs_session",
   get() {
-    try { return JSON.parse(sessionStorage.getItem(this.key)) || null; }
+    try { return JSON.parse(localStorage.getItem(this.key)) || null; }
     catch { return null; }
   },
-  set(data) { sessionStorage.setItem(this.key, JSON.stringify(data)); },
-  clear() { sessionStorage.removeItem(this.key); },
+  set(data) { localStorage.setItem(this.key, JSON.stringify(data)); },
+  clear() { localStorage.removeItem(this.key); },
   token() { const s = this.get(); return s ? s.token : null; },
   user()  { const s = this.get(); return s ? s.user  : null; }
 };

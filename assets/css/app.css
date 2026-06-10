@@ -346,10 +346,11 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
    PRINT
    ===================================================================== */
 @media print {
+  @page { margin: 0; }
   .sidebar, .topbar, .scrim, .abs-toasts, .no-print, .container-fluid { display: none !important; }
   .app-main, .content { padding: 0; max-width: none; }
-  body { background: #fff; }
-  .invoice-doc { box-shadow: none; border: none; max-width: none; padding: 0; margin: 0; }
+  body { background: #fff; margin: 0; }
+  .invoice-doc { box-shadow: none; border: none; max-width: none; padding: 14mm; margin: 0; }
   .card { box-shadow: none; border: none; }
 }
 
@@ -405,3 +406,13 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 .item-stats .stat { background: var(--surface-2, #f6f8fa); border: 1px solid var(--border-soft, #eef1f4); border-radius: 10px; padding: 12px 14px; }
 .item-stats .stat-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted, #6b7785); }
 .item-stats .stat-value { display: block; font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+/* --- printed invoice: logo left, company info aligned to its right --- */
+.inv-company { display: flex; align-items: center; gap: 16px; }
+.inv-company .inv-logo { max-height: 72px; max-width: 200px; object-fit: contain; margin: 0; flex: 0 0 auto; }
+.inv-company-text { display: flex; flex-direction: column; justify-content: center; }
+
+/* --- dashboard weekly summary table --- */
+.summary-table th, .summary-table td { white-space: nowrap; }
+.summary-table .col-today { background: rgba(15, 118, 110, .08); }
+.summary-table thead th.col-today { background: rgba(15, 118, 110, .16); }

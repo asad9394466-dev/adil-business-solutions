@@ -57,6 +57,7 @@ const API = {
   login(username, password)    { return this.call("login", { username, password }); },
   dashboard()                  { return this.call("dashboard"); },
   salesSummary(from, to)       { return this.call("salesSummary", { from, to }); },
+  weeklySummary()              { return this.call("weeklySummary"); },
   searchDocuments(q)           { return this.call("searchDocuments", { q }); },
 
   list(entity, params = {})    { return this.call("list",   Object.assign({ entity }, params)); },

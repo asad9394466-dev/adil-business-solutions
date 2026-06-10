@@ -25,6 +25,8 @@ Router.register("home", async (mount) => {
       ${kpiCard("Low Stock Alerts", "0", "alert")}
     </div>
 
+    <div class="card no-pad" id="weekly-summary"></div>
+
     <div class="card">
       <div class="card-head"><h2>System status</h2></div>
       <div id="conn-status" class="conn-status">
@@ -60,6 +62,19 @@ Router.register("home", async (mount) => {
     setKpiByLabel(mount, "Items", String(d.items_count || 0));
     setKpiByLabel(mount, "Customers", String(d.customers_count || 0));
     setKpiByLabel(mount, "Low Stock Alerts", String(d.low_stock_count || 0));
+
+    // weekly transactions summary
+    try {
+      const w = await API.weeklySummary();
+      const el = mount.querySelector("#weekly-summary");
+      const moneyRows = { "Customer Payments": 1, "Supplier Payments": 1 };
+      el.innerHTML = `
+        <div class="card-head" style="padding:14px 16px 0;"><h2>Weekly Transactions Summary</h2></div>
+        <div class="table-wrap"><table class="data-table summary-table">
+          <thead><tr><th>Title</th>${w.days.map((dd, i) => `<th class="num${i === w.days.length - 1 ? ' col-today' : ''}">${UI.escape(dd)}</th>`).join("")}</tr></thead>
+          <tbody>${w.rows.map(r => `<tr><td><strong>${UI.escape(r.title)}</strong></td>${r.values.map((v, i) => `<td class="num${i === w.days.length - 1 ? ' col-today' : ''}">${moneyRows[r.title] ? UI.money(v) : (Number(v) ? UI.money(v) : 0)}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table></div>`;
+    } catch (e) { mount.querySelector("#weekly-summary").innerHTML = `<div class="empty"><p>Weekly summary unavailable: ${UI.escape(e.message)}</p></div>`; }
 
     // Edit a window's date range
     mount.querySelectorAll(".sales-edit").forEach(btn => btn.onclick = () => {

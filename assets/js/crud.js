@@ -108,6 +108,36 @@ const CRUD = {
   },
 
   // ---- form modal -----------------------------------------------------
+  QUICK_FIELDS: {
+    Suppliers: [{ key: 'code', label: 'Code' }, { key: 'name', label: 'Name', required: true }, { key: 'phone', label: 'Contact' }, { key: 'address', label: 'Address' }],
+    Brands: [{ key: 'name', label: 'Name', required: true }],
+    Customers: [{ key: 'name', label: 'Name', required: true }, { key: 'phone', label: 'Phone' }],
+    Categories: [{ key: 'name', label: 'Name', required: true }]
+  },
+  quickAdd(entity, onCreated) {
+    const fields = this.QUICK_FIELDS[entity] || [{ key: 'name', label: 'Name', required: true }];
+    const singular = entity.replace(/s$/, '');
+    const body = fields.map(f => `<label class="field field--wide"><span class="field-label">${UI.escape(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</span><input data-k="${f.key}"></label>`).join('');
+    const modal = UI.el(`<div class="modal-overlay"><div class="modal">
+      <div class="modal-head"><h2>New ${UI.escape(singular)}</h2><button class="icon-btn modal-close" title="Close">✕</button></div>
+      <form class="modal-body">${body}</form>
+      <div class="modal-foot"><button type="button" class="btn modal-close">Cancel</button><button type="button" class="btn btn--primary" id="qa-save">Create</button></div>
+    </div></div>`);
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelectorAll('.modal-close').forEach(b => b.onclick = close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    const first = modal.querySelector('input'); if (first) first.focus();
+    modal.querySelector('#qa-save').onclick = async () => {
+      const data = {};
+      fields.forEach(f => { data[f.key] = modal.querySelector(`[data-k="${f.key}"]`).value.trim(); });
+      if (fields.some(f => f.required && !data[f.key])) { UI.toast('Please fill in the required fields.', 'error'); return; }
+      UI.loading(true, 'Creating…');
+      try { const rec = await API.create(entity, data); UI.loading(false); UI.toast(`${singular} created.`, 'success'); close(); onCreated(rec); }
+      catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+    };
+  },
+
   async openForm(cfg, state, render, id) {
     const record = id ? (state.rows.find(r => String(r.id) === String(id)) || {}) : {};
 
@@ -143,6 +173,21 @@ const CRUD = {
     modal.querySelectorAll('.tab-btn').forEach(btn => btn.onclick = () => {
       modal.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       modal.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === btn.dataset.tab));
+    });
+
+    // inline quick-add (+) next to select fields
+    modal.querySelectorAll('.quick-add-btn').forEach(btn => btn.onclick = () => {
+      const entity = btn.dataset.entity, field = btn.dataset.field, labelKey = btn.dataset.label;
+      this.quickAdd(entity, (rec) => {
+        if (!this.cache[entity]) this.cache[entity] = [];
+        this.cache[entity].push(rec);
+        const sel = modal.querySelector(`select[name="${field}"]`);
+        if (sel) {
+          const opt = document.createElement('option');
+          opt.value = rec.id; opt.textContent = rec[labelKey] || rec.name || rec.text || rec.id;
+          sel.appendChild(opt); sel.value = rec.id;
+        }
+      });
     });
 
     const close = () => modal.remove();
@@ -202,6 +247,9 @@ const CRUD = {
         return `<option value="${UI.escape(val)}"${String(val) === String(v) ? ' selected' : ''}>${UI.escape(lab)}</option>`;
       }).join('');
       input = `<select name="${f.key}">${optsHtml}</select>`;
+      if (f.quickAdd) {
+        input = `<span class="input-with-btn">${input}<button type="button" class="btn quick-add-btn" data-field="${f.key}" data-entity="${f.quickAdd}"${f.labelKey ? ` data-label="${f.labelKey}"` : ''} title="Add new">＋</button></span>`;
+      }
     } else {
       const t = f.type === 'number' ? 'number' : (f.type === 'date' ? 'date' : (f.type === 'password' ? 'password' : 'text'));
       input = `<input type="${t}" name="${f.key}"${f.step ? ` step="${f.step}"` : ''} value="${UI.escape(v)}">`;

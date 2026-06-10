@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "2.3 (Items, search, price manager)",
+  VERSION: "2.4 (Quick-add, stock hint, dashboard table)",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet

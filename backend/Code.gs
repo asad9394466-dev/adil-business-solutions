@@ -224,6 +224,7 @@ function handle_(e) {
       case 'nextNumber': return out_({ ok: true, data: { number: nextNumber_(p.name) } });
       case 'dashboard':  return out_({ ok: true, data: dashboard_() });
       case 'salesSummary': return out_({ ok: true, data: salesSum_(p.from, p.to) });
+      case 'weeklySummary': return out_({ ok: true, data: weeklySummary_() });
       case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
       case 'itemCard': return out_({ ok: true, data: itemCard_(p.item_id) });
       case 'updatePrices': return out_({ ok: true, data: updatePrices_(p.updates) });
@@ -1518,4 +1519,34 @@ function updatePrices_(updates) {
     if (Object.keys(patch).length) { update_('Items', u.id, patch); n++; }
   });
   return { updated: n };
+}
+
+// =====================================================================
+//  WEEKLY TRANSACTIONS SUMMARY  (last 7 days, by document category)
+// =====================================================================
+function weeklySummary_() {
+  var tz = tz_(), now = new Date(), days = [];
+  for (var k = 6; k >= 0; k--) days.push(Utilities.formatDate(new Date(now.getTime() - k * 86400000), tz, 'yyyy-MM-dd'));
+  var idx = {}; days.forEach(function (d, i) { idx[d] = i; });
+  var blank = function () { return days.map(function () { return 0; }); };
+  var rows = {
+    'Purchases': blank(), 'Purchase Returns': blank(), 'Sales': blank(), 'Sale Returns': blank(),
+    'Cash Sales': blank(), 'POS': blank(), 'Reverse POS': blank(), 'Customer Payments': blank(), 'Supplier Payments': blank()
+  };
+  function add(title, entity, filter, amountField) {
+    list_(entity, {}).forEach(function (r) {
+      if (filter && !filter(r)) return;
+      var key = dayKey_(r.date);
+      if (idx[key] === undefined) return;
+      rows[title][idx[key]] += Number(r[amountField || 'total'] || 0);
+    });
+  }
+  add('Purchases', 'Bills', function (r) { return r.bill_type !== 'Credit'; });
+  add('Purchase Returns', 'Bills', function (r) { return r.bill_type === 'Credit'; });
+  add('Sales', 'Invoices', null);
+  add('Sale Returns', 'CreditMemos', null);
+  add('Cash Sales', 'SalesReceipts', null);
+  add('Customer Payments', 'Payments', null, 'amount');
+  var order = ['Purchases', 'Purchase Returns', 'Sales', 'Sale Returns', 'Cash Sales', 'POS', 'Reverse POS', 'Customer Payments', 'Supplier Payments'];
+  return { days: days, rows: order.map(function (t) { return { title: t, values: rows[t] }; }) };
 }

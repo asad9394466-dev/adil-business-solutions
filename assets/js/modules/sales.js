@@ -239,7 +239,7 @@ const SalesEditor = {
       <div class="card">
         <div class="form-grid">
           <label class="field${doc.hasDueDate ? '' : ' field--wide'}"><span class="field-label">Customer${doc.customerRequired ? ' <span class="req">*</span>' : ''}</span>
-            <select id="s-customer">${custOpts}</select></label>
+            <span class="input-with-btn"><select id="s-customer">${custOpts}</select><button type="button" class="btn" id="s-add-customer" title="New customer">＋</button></span></label>
           <label class="field"><span class="field-label">${doc.hasDueDate ? 'Invoice Date' : 'Sale Date'}</span><input type="date" id="s-date" value="${UI.escape(state.date)}"></label>
           ${dueField}
           ${refField}
@@ -340,6 +340,14 @@ const SalesEditor = {
 
     mount.querySelector('#s-add-line').onclick = () => { state.lines.push(this.blankLine()); renderLines(); };
     mount.querySelector('#s-customer').onchange = (e) => { state.customer_id = e.target.value; refreshBalance(); };
+    const addCustBtn = mount.querySelector('#s-add-customer');
+    if (addCustBtn) addCustBtn.onclick = () => CRUD.quickAdd('Customers', (rec) => {
+      Sales.customers.push(rec);
+      const sel = mount.querySelector('#s-customer');
+      const opt = document.createElement('option');
+      opt.value = rec.id; opt.textContent = rec.name; sel.appendChild(opt); sel.value = rec.id;
+      state.customer_id = rec.id; refreshBalance();
+    });
     mount.querySelector('#s-date').onchange = (e) => { state.date = e.target.value; };
     if (doc.hasDueDate) mount.querySelector('#s-due').onchange = (e) => { state.due_date = e.target.value; };
     if (doc.hasReference) mount.querySelector('#s-ref').oninput = (e) => { state.reference_no = e.target.value; };
@@ -362,6 +370,12 @@ const SalesEditor = {
     const price = tr.querySelector('.ln-price');
     const disc = tr.querySelector('.ln-disc');
 
+    const setQtyHint = async (itemId) => {
+      if (!itemId) { qty.title = ''; return; }
+      try { const r = await API.call('inventoryOnHand', { item_id: itemId }); qty.title = 'Quantity in hand: ' + (r.on_hand != null ? r.on_hand : 0); }
+      catch { qty.title = ''; }
+    };
+
     itemSel.onchange = () => {
       state.lines[i].item_id = itemSel.value;
       const it = Sales.items.find(x => String(x.id) === String(itemSel.value));
@@ -369,8 +383,10 @@ const SalesEditor = {
         desc.value = it.name; state.lines[i].description = it.name;
         if (it.regular_price !== '' && it.regular_price != null) { price.value = it.regular_price; state.lines[i].unit_price = it.regular_price; }
       }
+      setQtyHint(itemSel.value);
       recompute();
     };
+    if (state.lines[i].item_id) setQtyHint(state.lines[i].item_id);
     desc.oninput = () => { state.lines[i].description = desc.value; };
     qty.oninput = () => { state.lines[i].qty = qty.value; recompute(); };
     price.oninput = () => { state.lines[i].unit_price = price.value; recompute(); };
@@ -464,8 +480,10 @@ async function buildSalesDetail(mount, doc, id) {
       <div class="inv-top">
         <div class="inv-company">
           ${co.logo ? `<img src="${co.logo}" alt="" class="inv-logo">` : ''}
-          <div class="inv-co-name">${UI.escape(co.name)}</div>
-          <div class="inv-co-meta">${UI.escape(co.address || '')}<br>${UI.escape(co.phone || '')}${co.mobile ? ' · ' + UI.escape(co.mobile) : ''}${co.email ? ' · ' + UI.escape(co.email) : ''}</div>
+          <div class="inv-company-text">
+            <div class="inv-co-name">${UI.escape(co.name)}</div>
+            <div class="inv-co-meta">${UI.escape(co.address || '')}<br>${UI.escape(co.phone || '')}${co.mobile ? ' · ' + UI.escape(co.mobile) : ''}${co.email ? ' · ' + UI.escape(co.email) : ''}</div>
+          </div>
         </div>
         <div class="inv-title">
           <h2>${UI.escape(doc.docTitle)}</h2>

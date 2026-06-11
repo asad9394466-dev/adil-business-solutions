@@ -232,6 +232,14 @@ function handle_(e) {
       case 'reportBalanceSheet': return out_({ ok: true, data: reportBalanceSheet_(p) });
       case 'reportIncomeByCustomer': return out_({ ok: true, data: reportIncomeByCustomer_(p) });
       case 'reportTransactionsSummary': return out_({ ok: true, data: reportTransactionsSummary_(p) });
+      case 'reportCustomerBalances': return out_({ ok: true, data: reportCustomerBalances_(p) });
+      case 'reportPaymentCollection': return out_({ ok: true, data: reportPaymentCollection_(p) });
+      case 'reportCustomerStatement': return out_({ ok: true, data: reportCustomerStatement_(p) });
+      case 'reportAccountStatement': return out_({ ok: true, data: reportAccountStatement_(p) });
+      case 'reportSupplierBalances': return out_({ ok: true, data: reportSupplierBalances_(p) });
+      case 'reportSupplierStatement': return out_({ ok: true, data: reportSupplierStatement_(p) });
+      case 'reportJournal': return out_({ ok: true, data: reportJournal_(p) });
+      case 'reportGeneralLedger': return out_({ ok: true, data: reportGeneralLedger_(p) });
       case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
       case 'itemCard': return out_({ ok: true, data: itemCard_(p.item_id) });
       case 'updatePrices': return out_({ ok: true, data: updatePrices_(p.updates) });
@@ -1741,4 +1749,124 @@ function reportTransactionsSummary_(p) {
     ['Customer Payments', 'Payments', 'amount', null]
   ];
   return { from: f, to: t, rows: defs.map(function (d) { var r = agg(d[1], d[2], d[3]); return { label: d[0], count: r.count, total: r.total }; }) };
+}
+
+// =====================================================================
+//  REPORTS — Receivables / Payables / Accounts
+// =====================================================================
+function inRange_(k, f, t) { if (f && k < f) return false; if (t && k > t) return false; return true; }
+
+function reportCustomerBalances_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var cust = nameMap_('Customers'), agg = {};
+  list_('Invoices', {}).forEach(function (r) {
+    if (!inRange_(dayKey_(r.date), f, t)) return;
+    var name = cust[String(r.customer_id)] || '—';
+    var a = agg[name] || (agg[name] = { invoiced: 0, balance: 0 });
+    a.invoiced += Number(r.total || 0); a.balance += Number(r.balance || 0);
+  });
+  var lines = Object.keys(agg).map(function (k) { var a = agg[k]; return { customer: k, invoiced: a.invoiced, paid: a.invoiced - a.balance, balance: a.balance }; }).sort(function (a, b) { return b.balance - a.balance; });
+  return { from: f, to: t, lines: lines,
+    total_invoiced: lines.reduce(function (s, l) { return s + l.invoiced; }, 0),
+    total_paid: lines.reduce(function (s, l) { return s + l.paid; }, 0),
+    total_balance: lines.reduce(function (s, l) { return s + l.balance; }, 0) };
+}
+
+function reportPaymentCollection_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var cust = nameMap_('Customers'), lines = [];
+  list_('Payments', {}).forEach(function (r) {
+    var k = dayKey_(r.date); if (!inRange_(k, f, t)) return;
+    lines.push({ date: k, customer: cust[String(r.customer_id)] || '', amount: Number(r.amount || 0), method: r.method || '', reference: r.reference || '' });
+  });
+  lines.sort(function (a, b) { return String(a.date).localeCompare(b.date); });
+  return { from: f, to: t, lines: lines, total: lines.reduce(function (s, l) { return s + l.amount; }, 0) };
+}
+
+function statement_(events, f, t, openingExtra) {
+  events.sort(function (a, b) { return String(a.date).localeCompare(b.date); });
+  var opening = openingExtra || 0, inrange = [];
+  events.forEach(function (e) {
+    if (f && e.date < f) { opening += e.debit - e.credit; return; }
+    if (t && e.date > t) return;
+    inrange.push(e);
+  });
+  var bal = opening;
+  inrange.forEach(function (e) { bal += e.debit - e.credit; e.balance = bal; });
+  return { opening: opening, lines: inrange, closing: bal };
+}
+
+function reportCustomerStatement_(p) {
+  if (!p.id) return { lines: [], need_pick: true };
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var c = get_('Customers', p.id); if (!c) throw new Error('Customer not found.');
+  var ev = [];
+  list_('Invoices', {}).forEach(function (r) { if (String(r.customer_id) === String(p.id)) ev.push({ date: dayKey_(r.date), type: 'Invoice', number: r.invoice_no, debit: Number(r.total || 0), credit: 0 }); });
+  list_('Payments', {}).forEach(function (r) { if (String(r.customer_id) === String(p.id)) ev.push({ date: dayKey_(r.date), type: 'Payment', number: r.reference || '', debit: 0, credit: Number(r.amount || 0) }); });
+  list_('CreditMemos', {}).forEach(function (r) { if (String(r.customer_id) === String(p.id)) ev.push({ date: dayKey_(r.date), type: 'Credit Memo', number: r.memo_no, debit: 0, credit: Number(r.total || 0) }); });
+  var s = statement_(ev, f, t, Number(c.opening_balance || 0));
+  return { name: c.name, from: f, to: t, opening: s.opening, lines: s.lines, closing: s.closing };
+}
+
+function reportSupplierBalances_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var supp = nameMap_('Suppliers'), agg = {};
+  list_('Bills', {}).forEach(function (r) {
+    if (!inRange_(dayKey_(r.date), f, t)) return;
+    var sign = r.bill_type === 'Credit' ? -1 : 1;
+    var name = supp[String(r.supplier_id)] || '—';
+    var a = agg[name] || (agg[name] = { billed: 0, balance: 0 });
+    a.billed += Number(r.total || 0) * sign; a.balance += Number(r.balance || 0) * sign;
+  });
+  var lines = Object.keys(agg).map(function (k) { var a = agg[k]; return { supplier: k, billed: a.billed, paid: a.billed - a.balance, balance: a.balance }; }).sort(function (a, b) { return b.balance - a.balance; });
+  return { from: f, to: t, lines: lines,
+    total_billed: lines.reduce(function (s, l) { return s + l.billed; }, 0),
+    total_paid: lines.reduce(function (s, l) { return s + l.paid; }, 0),
+    total_balance: lines.reduce(function (s, l) { return s + l.balance; }, 0) };
+}
+
+function reportSupplierStatement_(p) {
+  if (!p.id) return { lines: [], need_pick: true };
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var s = get_('Suppliers', p.id); if (!s) throw new Error('Supplier not found.');
+  var ev = [];
+  list_('Bills', {}).forEach(function (r) {
+    if (String(r.supplier_id) !== String(p.id)) return;
+    if (r.bill_type === 'Credit') ev.push({ date: dayKey_(r.date), type: 'Supplier Credit', number: r.bill_no, debit: Number(r.total || 0), credit: 0 });
+    else ev.push({ date: dayKey_(r.date), type: 'Bill', number: r.bill_no, debit: 0, credit: Number(r.total || 0) });
+  });
+  var st = statement_(ev, f, t, Number(s.opening_balance || 0) * -1);
+  // balance is credit-heavy (we owe); flip sign so positive = payable
+  return { name: s.name, from: f, to: t, opening: -st.opening, lines: st.lines.map(function (l) { return { date: l.date, type: l.type, number: l.number, debit: l.debit, credit: l.credit, balance: -l.balance }; }), closing: -st.closing };
+}
+
+function reportJournal_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var accs = {}; rows_('Accounts').forEach(function (a) { accs[String(a.id)] = a.account_name; });
+  var lines = [], totDr = 0, totCr = 0;
+  rows_('Journal').forEach(function (r) {
+    var k = dayKey_(r.date); if (!inRange_(k, f, t)) return;
+    var dr = Number(r.debit || 0), cr = Number(r.credit || 0);
+    totDr += dr; totCr += cr;
+    lines.push({ date: k, entry_no: r.entry_no, account: accs[String(r.account_id)] || '', debit: dr, credit: cr, memo: r.memo || r.name || '' });
+  });
+  lines.sort(function (a, b) { return String(a.date + a.entry_no).localeCompare(String(b.date + b.entry_no)); });
+  return { from: f, to: t, lines: lines, total_debit: totDr, total_credit: totCr };
+}
+
+function reportGeneralLedger_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var byAcct = {};
+  rows_('Journal').forEach(function (r) {
+    var a = String(r.account_id); (byAcct[a] = byAcct[a] || []).push(r);
+  });
+  var out = [];
+  rows_('Accounts').forEach(function (a) {
+    var entries = byAcct[String(a.id)] || []; if (!entries.length) return;
+    var ev = entries.map(function (r) { return { date: dayKey_(r.date), number: r.entry_no, memo: r.memo || r.name || '', debit: Number(r.debit || 0), credit: Number(r.credit || 0) }; });
+    var s = statement_(ev, f, t, 0);
+    if (!s.lines.length && Math.abs(s.opening) < 0.005) return;
+    out.push({ account: a.account_name, type: a.account_type, opening: s.opening, lines: s.lines, closing: s.closing });
+  });
+  return { from: f, to: t, accounts: out };
 }

@@ -23,14 +23,88 @@ const CompanySettings = {
       if (s.currency_symbol) co.currency_symbol = s.currency_symbol;
       if (s.invoice_prefix) co.invoice_prefix = s.invoice_prefix;
       co.logo = s.logo || '';
+      co.theme_color = s.theme_color || '';
+      co.font_family = s.font_family || '';
       this.applyBrand();
+      this.applyTheme();
       return s;
     } catch (e) { return null; }
   },
 
   // logo is used on printed invoices/receipts, not the sidebar
-  applyBrand() { /* intentionally no sidebar logo */ }
+  applyBrand() { /* intentionally no sidebar logo */ },
+
+  applyTheme() {
+    const co = window.ABS_CONFIG.COMPANY;
+    const c = (THEME_COLORS.find(x => x.id === co.theme_color));
+    const root = document.documentElement;
+    if (c) {
+      root.style.setProperty('--accent', c.accent);
+      root.style.setProperty('--accent-2', c.accent2);
+      root.style.setProperty('--accent-ink', c.ink);
+    } else {
+      root.style.removeProperty('--accent'); root.style.removeProperty('--accent-2'); root.style.removeProperty('--accent-ink');
+    }
+    const f = THEME_FONTS.find(x => x.id === co.font_family);
+    document.body.style.fontFamily = f ? f.stack : '';
+  }
 };
+
+const THEME_COLORS = [
+  { id: 'teal',   name: 'Teal',   accent: '#0f766e', accent2: '#14b8a6', ink: '#0b5650' },
+  { id: 'blue',   name: 'Blue',   accent: '#2563eb', accent2: '#3b82f6', ink: '#1e40af' },
+  { id: 'indigo', name: 'Indigo', accent: '#4f46e5', accent2: '#6366f1', ink: '#3730a3' },
+  { id: 'violet', name: 'Violet', accent: '#7c3aed', accent2: '#8b5cf6', ink: '#5b21b6' },
+  { id: 'rose',   name: 'Rose',   accent: '#e11d48', accent2: '#f43f5e', ink: '#9f1239' },
+  { id: 'red',    name: 'Red',    accent: '#dc2626', accent2: '#ef4444', ink: '#991b1b' },
+  { id: 'orange', name: 'Orange', accent: '#ea580c', accent2: '#f97316', ink: '#9a3412' },
+  { id: 'amber',  name: 'Amber',  accent: '#d97706', accent2: '#f59e0b', ink: '#92400e' },
+  { id: 'green',  name: 'Green',  accent: '#16a34a', accent2: '#22c55e', ink: '#15803d' },
+  { id: 'slate',  name: 'Slate',  accent: '#334155', accent2: '#475569', ink: '#1e293b' }
+];
+const THEME_FONTS = [
+  { id: 'system', name: 'System (sans-serif)', stack: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' },
+  { id: 'serif',  name: 'Classic Serif',       stack: 'Georgia, "Times New Roman", Times, serif' },
+  { id: 'rounded',name: 'Rounded',             stack: 'ui-rounded, "Hiragino Maru Gothic ProN", "Quicksand", "Segoe UI", system-ui, sans-serif' }
+];
+
+Router.register('appearance', (mount) => {
+  const co = window.ABS_CONFIG.COMPANY;
+  let pickColor = co.theme_color || 'teal';
+  let pickFont = co.font_family || 'system';
+
+  mount.innerHTML = `
+    <div class="page-head"><h1>Appearance</h1><span class="page-sub">Customize how the app looks</span>
+      <div class="page-actions"><button class="btn btn--primary" id="ap-save">Save</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Accent color</h2></div>
+      <p class="muted">Used for buttons, links, highlights and active menu items.</p>
+      <div class="swatch-grid" id="ap-colors">
+        ${THEME_COLORS.map(c => `<button class="swatch${c.id === pickColor ? ' selected' : ''}" data-id="${c.id}" title="${c.name}" style="background:${c.accent}"><span>${UI.escape(c.name)}</span></button>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Font style</h2></div>
+      <div class="font-grid" id="ap-fonts">
+        ${THEME_FONTS.map(f => `<button class="font-option${f.id === pickFont ? ' selected' : ''}" data-id="${f.id}" style="font-family:${f.stack}">${UI.escape(f.name)}<em>The quick brown fox 123</em></button>`).join('')}
+      </div>
+    </div>`;
+
+  const live = () => {
+    const c = THEME_COLORS.find(x => x.id === pickColor), root = document.documentElement;
+    if (c) { root.style.setProperty('--accent', c.accent); root.style.setProperty('--accent-2', c.accent2); root.style.setProperty('--accent-ink', c.ink); }
+    const f = THEME_FONTS.find(x => x.id === pickFont);
+    document.body.style.fontFamily = f ? f.stack : '';
+  };
+  mount.querySelectorAll('#ap-colors .swatch').forEach(b => b.onclick = () => { pickColor = b.dataset.id; mount.querySelectorAll('#ap-colors .swatch').forEach(x => x.classList.toggle('selected', x === b)); live(); });
+  mount.querySelectorAll('#ap-fonts .font-option').forEach(b => b.onclick = () => { pickFont = b.dataset.id; mount.querySelectorAll('#ap-fonts .font-option').forEach(x => x.classList.toggle('selected', x === b)); live(); });
+  mount.querySelector('#ap-save').onclick = async () => {
+    UI.loading(true, 'Saving…');
+    try { await API.call('saveSettings', { data: { theme_color: pickColor, font_family: pickFont } }); await CompanySettings.loadCompany(); UI.loading(false); UI.toast('Appearance saved.', 'success'); }
+    catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+  };
+});
 window.CompanySettings = CompanySettings;
 
 // ---- Company Information screen ---------------------------------------

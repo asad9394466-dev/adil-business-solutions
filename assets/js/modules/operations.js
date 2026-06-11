@@ -601,3 +601,59 @@ Router.register('edit-inventory-adjustment', (m, p) => adjustmentEditor(m, p.id)
 Router.register('claims',                    (m) => claimsList(m));
 Router.register('new-claim',                 (m) => claimEditor(m, null));
 Router.register('edit-claim',                (m, p) => claimEditor(m, p.id));
+
+/* =====================================================================
+   BULK SMS — compose a message and target customers by area
+   (Sending requires an SMS gateway; see notes in the UI.)
+   ===================================================================== */
+Router.register('bulk-sms', async (mount) => {
+  UI.loading(true);
+  let customers, areas = [];
+  try {
+    customers = await API.list('Customers');
+    try { areas = await API.list('Areas'); } catch (e) { areas = []; }
+  } catch (e) { UI.loading(false); mount.innerHTML = `<div class="card"><div class="empty">${UI.icon('alert')}<h3>Couldn't load</h3><p>${UI.escape(e.message)}</p></div></div>`; return; }
+  UI.loading(false);
+
+  const areaOpts = '<option value="">All areas</option>' + areas.map(a => `<option value="${UI.escape(a.id)}">${UI.escape(a.name)}</option>`).join('');
+  mount.innerHTML = `
+    <div class="page-head"><h1>Bulk SMS</h1><span class="page-sub">Send a message to your customers</span></div>
+    <div class="card"><div class="form-grid">
+      <label class="field"><span class="field-label">Region / Area</span><select id="sms-area">${areaOpts}</select></label>
+      <label class="field"><span class="field-label">Recipients</span><input id="sms-count" disabled value=""></label>
+      <label class="field field--wide"><span class="field-label">Message</span><textarea id="sms-msg" rows="4" placeholder="Type your message…"></textarea></label>
+    </div>
+    <p class="muted" id="sms-meta">0 characters · 1 SMS segment</p>
+    <div class="form-actions"><button class="btn btn--primary" id="sms-send">Send SMS</button></div>
+    </div>
+    <div class="card no-pad" id="sms-list"></div>`;
+
+  const recipients = () => {
+    const area = mount.querySelector('#sms-area').value;
+    return customers.filter(c => (c.phone && String(c.phone).trim()) && (!area || String(c.area) === String(area)));
+  };
+  const refresh = () => {
+    const list = recipients();
+    mount.querySelector('#sms-count').value = `${list.length} customer(s) with a phone number`;
+    const t = mount.querySelector('#sms-list');
+    t.innerHTML = list.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Customer</th><th>Phone</th></tr></thead>
+      <tbody>${list.slice(0, 200).map(c => `<tr><td>${UI.escape(c.name)}</td><td>${UI.escape(c.phone)}</td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="empty"><p>No customers with a phone number in this area.</p></div>`;
+  };
+  const meta = () => {
+    const len = mount.querySelector('#sms-msg').value.length;
+    const seg = Math.max(1, Math.ceil(len / 160));
+    mount.querySelector('#sms-meta').textContent = `${len} characters · ${seg} SMS segment${seg > 1 ? 's' : ''}`;
+  };
+  mount.querySelector('#sms-area').onchange = refresh;
+  mount.querySelector('#sms-msg').oninput = meta;
+  mount.querySelector('#sms-send').onclick = () => {
+    const msg = mount.querySelector('#sms-msg').value.trim();
+    const list = recipients();
+    if (!msg) { UI.toast('Type a message first.', 'error'); return; }
+    if (!list.length) { UI.toast('No recipients with phone numbers.', 'error'); return; }
+    UI.toast(`Ready to send to ${list.length} customer(s). Connect an SMS gateway to deliver.`, 'info');
+    alert(`SMS gateway not connected yet.\n\nThis message is ready for ${list.length} customer(s):\n\n"${msg}"\n\nTo actually deliver these, an SMS provider (e.g. a Telenor corporate SMS account or an aggregator API) needs to be wired into the backend. Ask to set this up and provide the gateway's API URL, sender ID and credentials.`);
+  };
+  refresh(); meta();
+});

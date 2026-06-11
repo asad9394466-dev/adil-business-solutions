@@ -33,6 +33,9 @@ const Router = {
     if (!this.mount) return;
     const { route, params } = this.parse();
     this.highlight(route);
+    const label = this.menuLabel(route);
+    const short = (window.ABS_CONFIG && window.ABS_CONFIG.APP_SHORT) || "ABS";
+    document.title = label ? `${label} · ${short}` : ((window.ABS_CONFIG && window.ABS_CONFIG.APP_NAME) || "Adil Business Solutions");
     window.scrollTo(0, 0);
 
     const handler = this.routes[route];

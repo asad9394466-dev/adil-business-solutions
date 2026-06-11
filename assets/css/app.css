@@ -446,3 +446,14 @@ code { font-family: "IBM Plex Mono", monospace; background: #eef1f5; padding: 1p
 .report-table .rpt-subtotal td { border-top: 1px solid var(--border-soft, #eef1f4); font-weight: 600; }
 .report-table .rpt-total td { border-top: 2px solid var(--border, #d8dee4); font-weight: 700; }
 .report-table .rpt-grand td { border-top: 2px solid var(--ink, #1f2937); border-bottom: 3px double var(--ink, #1f2937); }
+
+/* --- appearance settings --- */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
+.swatch { height: 64px; border-radius: 10px; border: 3px solid transparent; cursor: pointer; position: relative; color: #fff; display: flex; align-items: flex-end; padding: 8px; font-size: 12px; font-weight: 600; }
+.swatch span { text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.swatch.selected { border-color: var(--ink, #0e1a2b); box-shadow: 0 0 0 2px #fff inset; }
+.font-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 6px; }
+.font-option { text-align: left; border: 2px solid var(--line, #e4e8ee); border-radius: 10px; padding: 12px 14px; cursor: pointer; background: var(--card, #fff); font-size: 15px; }
+.font-option em { display: block; font-style: normal; font-size: 13px; color: var(--muted, #67768a); margin-top: 4px; }
+.font-option.selected { border-color: var(--accent, #0f766e); }
+.report-table .gl-acct { text-align: left; background: var(--surface-2, #f6f8fa); font-size: 14px; }

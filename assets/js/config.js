@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "7.2",
+  VERSION: "7.3",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -49,7 +49,8 @@ window.ABS_CONFIG = {
       { label: "UOM", route: "uom" },
       { label: "Sales Representatives", route: "sales-representatives" },
       { label: "Users", route: "users" },
-      { label: "Company Information", route: "company-information" }
+      { label: "Company Information", route: "company-information" },
+      { label: "Appearance", route: "appearance" }
     ]},
 
     { label: "Items", icon: "box", children: [
@@ -100,15 +101,14 @@ window.ABS_CONFIG = {
 
     { label: "Reports", icon: "chart", children: [
       { label: "All Reports", route: "all-reports" },
-      { label: "Profit and Loss Standard", route: "report-pl" },
-      { label: "Balance Sheet Standard", route: "report-balance-sheet" },
-      { label: "Trial Balance", route: "report-trial-balance" },
-      { label: "Income By Customer Summary", route: "report-income-customer" },
-      { label: "Transactions Summary", route: "report-transactions-summary" }
+      { label: "Company & Financial", route: "reports-company-financial" },
+      { label: "Receivables", route: "reports-receivables" },
+      { label: "Payables", route: "reports-payables" },
+      { label: "Accounts", route: "reports-accounts" }
     ]}
   ],
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo", "expenses", "new-expense", "edit-expense", "inventory-transfer", "new-inventory-transfer", "edit-inventory-transfer", "inventory-adjustments", "new-inventory-adjustment", "edit-inventory-adjustment", "claims", "new-claim", "edit-claim", "item-search", "price-manager", "inventory-alert", "all-reports", "report-pl", "report-balance-sheet", "report-trial-balance", "report-income-customer", "report-transactions-summary"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo", "expenses", "new-expense", "edit-expense", "inventory-transfer", "new-inventory-transfer", "edit-inventory-transfer", "inventory-adjustments", "new-inventory-adjustment", "edit-inventory-adjustment", "claims", "new-claim", "edit-claim", "item-search", "price-manager", "inventory-alert", "all-reports", "report-pl", "report-balance-sheet", "report-trial-balance", "report-income-customer", "report-transactions-summary", "reports-company-financial", "reports-receivables", "reports-payables", "reports-accounts", "report-customer-balances", "report-payment-collection", "report-customer-statement", "report-account-statement", "report-supplier-balances", "report-supplier-statement", "report-journal", "report-general-ledger", "appearance", "bulk-sms"]
 };

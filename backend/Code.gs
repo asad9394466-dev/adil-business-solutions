@@ -227,6 +227,11 @@ function handle_(e) {
       case 'weeklySummary': return out_({ ok: true, data: weeklySummary_() });
       case 'dashboardExtra': return out_({ ok: true, data: dashboardExtra_() });
       case 'inventoryAlerts': return out_({ ok: true, data: inventoryAlerts_() });
+      case 'reportTrialBalance': return out_({ ok: true, data: reportTrialBalance_(p) });
+      case 'reportProfitLoss': return out_({ ok: true, data: plData_(p.from, p.to) });
+      case 'reportBalanceSheet': return out_({ ok: true, data: reportBalanceSheet_(p) });
+      case 'reportIncomeByCustomer': return out_({ ok: true, data: reportIncomeByCustomer_(p) });
+      case 'reportTransactionsSummary': return out_({ ok: true, data: reportTransactionsSummary_(p) });
       case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
       case 'itemCard': return out_({ ok: true, data: itemCard_(p.item_id) });
       case 'updatePrices': return out_({ ok: true, data: updatePrices_(p.updates) });
@@ -1623,4 +1628,117 @@ function dashboardExtra_() {
     .filter(function (a) { return Math.abs(Number(a.balance || 0)) > 0.001; })
     .map(function (a) { return { name: a.account_name, type: a.account_type, balance: Number(a.balance || 0) }; });
   return { accounts: accounts, recent: allTransactions_().slice(0, 8), charts: dashboardCharts_() };
+}
+
+// =====================================================================
+//  REPORTS — Company & Financial
+// =====================================================================
+var RPT_ASSET = ['Bank', 'Other Current Asset', 'Accounts Receivable', 'Fixed Asset', 'Other Asset'];
+var RPT_LIAB = ['Accounts Payable', 'Other Current Liability', 'Long Term Liability', 'Other Liability', 'Credit Card'];
+var RPT_INCOME = ['Income', 'Other Income'];
+var RPT_EXPENSE = ['Expense', 'Other Expense'];
+var RPT_COGS = ['Cost of Goods Sold'];
+
+// raw debit-minus-credit per account, optionally bounded by date
+function balancesByAccount_(fromKey, toKey) {
+  var bal = {};
+  rows_('Journal').forEach(function (r) {
+    var k = dayKey_(r.date);
+    if (fromKey && k < fromKey) return;
+    if (toKey && k > toKey) return;
+    var a = String(r.account_id);
+    bal[a] = (bal[a] || 0) + Number(r.debit || 0) - Number(r.credit || 0);
+  });
+  return bal;
+}
+// sign: 'debit' => amount = raw ; 'credit' => amount = -raw
+function rptSection_(bal, types, sign) {
+  var lines = [], total = 0;
+  rows_('Accounts').forEach(function (a) {
+    if (types.indexOf(a.account_type) === -1) return;
+    var raw = bal[String(a.id)] || 0;
+    var amt = sign === 'credit' ? -raw : raw;
+    if (Math.abs(amt) < 0.005) return;
+    lines.push({ account: a.account_name, amount: amt });
+    total += amt;
+  });
+  return { lines: lines, total: total };
+}
+
+function reportTrialBalance_(p) {
+  var asOf = p.to ? dayKey_(p.to) : null;
+  var bal = balancesByAccount_(null, asOf);
+  var lines = [], totDr = 0, totCr = 0;
+  rows_('Accounts').forEach(function (a) {
+    var raw = bal[String(a.id)] || 0;
+    if (Math.abs(raw) < 0.005) return;
+    var dr = raw > 0 ? raw : 0, cr = raw < 0 ? -raw : 0;
+    totDr += dr; totCr += cr;
+    lines.push({ account: a.account_name, type: a.account_type, debit: dr, credit: cr });
+  });
+  lines.sort(function (a, b) { return String(a.type).localeCompare(b.type) || String(a.account).localeCompare(b.account); });
+  return { as_of: asOf, lines: lines, total_debit: totDr, total_credit: totCr };
+}
+
+function plData_(from, to) {
+  var f = from ? dayKey_(from) : null, t = to ? dayKey_(to) : null;
+  var bal = balancesByAccount_(f, t);
+  var income = rptSection_(bal, RPT_INCOME, 'credit');
+  var cogs = rptSection_(bal, RPT_COGS, 'debit');
+  var expense = rptSection_(bal, RPT_EXPENSE, 'debit');
+  var gross = income.total - cogs.total;
+  return { from: f, to: t, income: income, cogs: cogs, gross_profit: gross, expense: expense, net_income: gross - expense.total };
+}
+
+function reportBalanceSheet_(p) {
+  var asOf = p.to ? dayKey_(p.to) : null;
+  var bal = balancesByAccount_(null, asOf);
+  var assets = rptSection_(bal, RPT_ASSET, 'debit');
+  var liab = rptSection_(bal, RPT_LIAB, 'credit');
+  var equity = rptSection_(bal, ['Equity'], 'credit');
+  var pl = plData_(null, asOf);
+  equity.lines.push({ account: 'Current Year Earnings', amount: pl.net_income });
+  equity.total += pl.net_income;
+  return { as_of: asOf, assets: assets, liabilities: liab, equity: equity, total_assets: assets.total, total_liab_equity: liab.total + equity.total };
+}
+
+function reportIncomeByCustomer_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  var cust = nameMap_('Customers'), agg = {};
+  function add(entity, walkLabel) {
+    list_(entity, {}).forEach(function (r) {
+      var k = dayKey_(r.date); if (f && k < f) return; if (t && k > t) return;
+      var name = r.customer_id ? (cust[String(r.customer_id)] || '—') : (r.customer_name || walkLabel || 'Walk-in Customer');
+      agg[name] = (agg[name] || 0) + Number(r.total || 0);
+    });
+  }
+  add('Invoices'); add('SalesReceipts', 'Walk-in Customer');
+  var lines = Object.keys(agg).map(function (k) { return { customer: k, amount: agg[k] }; }).sort(function (a, b) { return b.amount - a.amount; });
+  return { from: f, to: t, lines: lines, total: lines.reduce(function (s, l) { return s + l.amount; }, 0) };
+}
+
+function reportTransactionsSummary_(p) {
+  var f = p.from ? dayKey_(p.from) : null, t = p.to ? dayKey_(p.to) : null;
+  function agg(entity, amountField, filter) {
+    var c = 0, sum = 0;
+    list_(entity, {}).forEach(function (r) {
+      if (filter && !filter(r)) return;
+      var k = dayKey_(r.date); if (f && k < f) return; if (t && k > t) return;
+      c++; sum += Number(r[amountField || 'total'] || 0);
+    });
+    return { count: c, total: sum };
+  }
+  var defs = [
+    ['Invoices', 'Invoices', null, null],
+    ['Sales Receipts', 'SalesReceipts', null, null],
+    ['Credit Memos', 'CreditMemos', null, null],
+    ['Sales Orders', 'SalesOrders', null, null],
+    ['Quotations', 'Quotations', null, null],
+    ['Bills', 'Bills', null, function (r) { return r.bill_type !== 'Credit'; }],
+    ['Purchase Returns', 'Bills', null, function (r) { return r.bill_type === 'Credit'; }],
+    ['Purchase Orders', 'PurchaseOrders', null, null],
+    ['Expenses', 'Expenses', null, null],
+    ['Customer Payments', 'Payments', 'amount', null]
+  ];
+  return { from: f, to: t, rows: defs.map(function (d) { var r = agg(d[1], d[2], d[3]); return { label: d[0], count: r.count, total: r.total }; }) };
 }

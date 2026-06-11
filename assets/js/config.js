@@ -30,7 +30,7 @@ window.ABS_CONFIG = {
   },
 
   // --- Version ---------------------------------------------------------
-  VERSION: "7.1",
+  VERSION: "7.2",
 
   // --- Sidebar menu ----------------------------------------------------
   // route = the part after # in the URL. Items without a built screen yet
@@ -100,14 +100,15 @@ window.ABS_CONFIG = {
 
     { label: "Reports", icon: "chart", children: [
       { label: "All Reports", route: "all-reports" },
-      { label: "Sales by Item", route: "report-sales-item" },
-      { label: "Sales by Customer", route: "report-sales-customer" },
-      { label: "Customer Balances", route: "report-customer-balances" },
-      { label: "Inventory Valuation", route: "report-inventory" }
+      { label: "Profit and Loss Standard", route: "report-pl" },
+      { label: "Balance Sheet Standard", route: "report-balance-sheet" },
+      { label: "Trial Balance", route: "report-trial-balance" },
+      { label: "Income By Customer Summary", route: "report-income-customer" },
+      { label: "Transactions Summary", route: "report-transactions-summary" }
     ]}
   ],
 
   // Which routes are actually built. Anything not listed shows a
   // "planned for a later phase" placeholder. We add to this each phase.
-  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo", "expenses", "new-expense", "edit-expense", "inventory-transfer", "new-inventory-transfer", "edit-inventory-transfer", "inventory-adjustments", "new-inventory-adjustment", "edit-inventory-adjustment", "claims", "new-claim", "edit-claim", "item-search", "price-manager", "inventory-alert"]
+  BUILT_ROUTES: ["home", "items", "new-item", "customers", "suppliers", "categories", "brands", "uom", "tax-types", "areas", "sales-representatives", "invoices", "new-invoice", "sales-receipts", "new-sales-receipt", "all-transactions", "stores", "warehouses", "price-lists", "users", "company-information", "accounts", "account-ledger", "general-journal", "new-general-journal-entry", "receive-payments", "view-payments", "show-undeposited-list", "view-deposits", "transfer-funds", "check-register", "pay-bills", "view-paid-bills", "purchase-orders", "new-purchase-order", "edit-purchase-order", "bills", "new-bill", "edit-bill", "sales-orders", "new-sales-order", "edit-sales-order", "quotations", "new-quotation", "edit-quotation", "credit-memos", "new-credit-memo", "edit-credit-memo", "expenses", "new-expense", "edit-expense", "inventory-transfer", "new-inventory-transfer", "edit-inventory-transfer", "inventory-adjustments", "new-inventory-adjustment", "edit-inventory-adjustment", "claims", "new-claim", "edit-claim", "item-search", "price-manager", "inventory-alert", "all-reports", "report-pl", "report-balance-sheet", "report-trial-balance", "report-income-customer", "report-transactions-summary"]
 };

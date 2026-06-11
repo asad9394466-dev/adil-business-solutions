@@ -58,6 +58,8 @@ const API = {
   dashboard()                  { return this.call("dashboard"); },
   salesSummary(from, to)       { return this.call("salesSummary", { from, to }); },
   weeklySummary()              { return this.call("weeklySummary"); },
+  dashboardExtra()             { return this.call("dashboardExtra"); },
+  inventoryAlerts()            { return this.call("inventoryAlerts"); },
   searchDocuments(q)           { return this.call("searchDocuments", { q }); },
 
   list(entity, params = {})    { return this.call("list",   Object.assign({ entity }, params)); },

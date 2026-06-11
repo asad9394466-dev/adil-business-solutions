@@ -225,6 +225,8 @@ function handle_(e) {
       case 'dashboard':  return out_({ ok: true, data: dashboard_() });
       case 'salesSummary': return out_({ ok: true, data: salesSum_(p.from, p.to) });
       case 'weeklySummary': return out_({ ok: true, data: weeklySummary_() });
+      case 'dashboardExtra': return out_({ ok: true, data: dashboardExtra_() });
+      case 'inventoryAlerts': return out_({ ok: true, data: inventoryAlerts_() });
       case 'searchDocuments': return out_({ ok: true, data: searchDocs_(p.q) });
       case 'itemCard': return out_({ ok: true, data: itemCard_(p.item_id) });
       case 'updatePrices': return out_({ ok: true, data: updatePrices_(p.updates) });
@@ -520,7 +522,7 @@ function dashboard_() {
   return {
     items_count: list_('Items', {}).length,
     customers_count: list_('Customers', {}).length,
-    low_stock_count: 0,
+    low_stock_count: inventoryAlerts_().length,
     today_sales: salesSum_(today, today).total,
     this_week_sales: salesSum_(tw.from, tw.to).total,
     last_week_sales: salesSum_(lw.from, lw.to).total,
@@ -1549,4 +1551,76 @@ function weeklySummary_() {
   add('Customer Payments', 'Payments', null, 'amount');
   var order = ['Purchases', 'Purchase Returns', 'Sales', 'Sale Returns', 'Cash Sales', 'POS', 'Reverse POS', 'Customer Payments', 'Supplier Payments'];
   return { days: days, rows: order.map(function (t) { return { title: t, values: rows[t] }; }) };
+}
+
+// =====================================================================
+//  INVENTORY ALERTS  (items at or below their re-order point)
+// =====================================================================
+function onHandMap_() {
+  var m = {};
+  rows_('StockMovements').forEach(function (r) {
+    var k = String(r.item_id);
+    m[k] = (m[k] || 0) + (String(r.type) === 'out' ? -1 : 1) * Number(r.qty || 0);
+  });
+  return m;
+}
+function inventoryAlerts_() {
+  var oh = onHandMap_();
+  var cats = nameMap_('Categories'), brands = nameMap_('Brands'), supps = nameMap_('Suppliers');
+  var res = [];
+  list_('Items', {}).forEach(function (it) {
+    var onhand = oh[String(it.id)] || 0;
+    var reorder = Number(it.reorder_level || 0);
+    if (onhand <= reorder) {
+      res.push({ id: it.id, upc: it.sku || '', name: it.name, brand: brands[String(it.brand_id)] || '',
+        category: cats[String(it.category_id)] || '', supplier: supps[String(it.supplier_id)] || '',
+        size: it.size || '', on_hand: onhand, reorder: reorder });
+    }
+  });
+  res.sort(function (a, b) { return (a.on_hand - a.reorder) - (b.on_hand - b.reorder); });
+  return res;
+}
+
+// =====================================================================
+//  DASHBOARD EXTRAS  (account balances, recent docs, monthly charts)
+// =====================================================================
+function monthsBack_(n) {
+  var tz = tz_(), out = [], now = new Date();
+  for (var k = n - 1; k >= 0; k--) {
+    var d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+    out.push({ key: Utilities.formatDate(d, tz, 'yyyy-MM'), label: Utilities.formatDate(d, tz, 'MMM yy') });
+  }
+  return out;
+}
+function monthKey_(v) { var k = dayKey_(v); return k ? k.slice(0, 7) : ''; }
+
+function dashboardCharts_() {
+  var months = monthsBack_(6), idx = {};
+  months.forEach(function (m, i) { idx[m.key] = i; });
+  var z = function () { return months.map(function () { return 0; }); };
+  var sales = z(), collection = z(), revenue = z(), cogs = z(), expense = z();
+  list_('Invoices', {}).forEach(function (r) { var i = idx[monthKey_(r.date)]; if (i !== undefined) sales[i] += Number(r.total || 0); });
+  list_('SalesReceipts', {}).forEach(function (r) { var i = idx[monthKey_(r.date)]; if (i !== undefined) sales[i] += Number(r.total || 0); });
+  list_('Payments', {}).forEach(function (r) { var i = idx[monthKey_(r.date)]; if (i !== undefined) collection[i] += Number(r.amount || 0); });
+  var typeById = {}; rows_('Accounts').forEach(function (a) { typeById[String(a.id)] = a.account_type; });
+  rows_('Journal').forEach(function (r) {
+    var i = idx[monthKey_(r.date)]; if (i === undefined) return;
+    var t = typeById[String(r.account_id)], net = Number(r.credit || 0) - Number(r.debit || 0);
+    if (t === 'Income' || t === 'Other Income') revenue[i] += net;
+    else if (t === 'Cost of Goods Sold') cogs[i] += -net;
+    else if (t === 'Expense' || t === 'Other Expense') expense[i] += -net;
+  });
+  return {
+    labels: months.map(function (m) { return m.label; }),
+    sales: sales, collection: collection,
+    gross_profit: months.map(function (m, i) { return revenue[i] - cogs[i]; }),
+    net_income: months.map(function (m, i) { return revenue[i] - cogs[i] - expense[i]; })
+  };
+}
+
+function dashboardExtra_() {
+  var accounts = accountsWithBalances_()
+    .filter(function (a) { return Math.abs(Number(a.balance || 0)) > 0.001; })
+    .map(function (a) { return { name: a.account_name, type: a.account_type, balance: Number(a.balance || 0) }; });
+  return { accounts: accounts, recent: allTransactions_().slice(0, 8), charts: dashboardCharts_() };
 }

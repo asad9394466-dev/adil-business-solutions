@@ -171,3 +171,42 @@ Router.register('price-manager', async (mount) => {
   };
   draw();
 });
+
+/* =====================================================================
+   INVENTORY ALERT — items at or below their re-order point
+   ===================================================================== */
+Router.register('inventory-alert', async (mount) => {
+  UI.loading(true);
+  let rows;
+  try { rows = await API.inventoryAlerts(); }
+  catch (e) { UI.loading(false); mount.innerHTML = `<div class="card"><div class="empty">${UI.icon('alert')}<h3>Couldn't load alerts</h3><p>${UI.escape(e.message)}</p></div></div>`; return; }
+  UI.loading(false);
+
+  mount.innerHTML = `
+    <div class="page-head"><h1>Inventory Alert</h1><span class="page-sub" id="ia-count"></span>
+      <div class="page-actions"><input id="ia-q" class="search-input" placeholder="Search…"></div>
+    </div>
+    <div class="card no-pad"><div class="table-wrap" id="ia-table"></div></div>`;
+
+  let q = '';
+  const draw = (list) => {
+    mount.querySelector('#ia-count').textContent = `${list.length} item${list.length === 1 ? '' : 's'} need attention`;
+    const t = mount.querySelector('#ia-table');
+    if (!list.length) { t.innerHTML = `<div class="empty">${UI.icon('box')}<h3>All good</h3><p>No items are below their re-order point.</p></div>`; return; }
+    t.innerHTML = `<table class="data-table"><thead><tr>
+        <th>UPC</th><th>Name</th><th>Brand</th><th>Category</th><th>Supplier</th><th>Size</th>
+        <th class="num">Qty On-hand</th><th class="num">Re-order Point</th><th class="actions"></th>
+      </tr></thead><tbody>${list.map(r => `<tr>
+        <td>${UI.escape(r.upc || '')}</td><td><strong>${UI.escape(r.name)}</strong></td>
+        <td>${UI.escape(r.brand || '—')}</td><td>${UI.escape(r.category || '—')}</td>
+        <td>${UI.escape(r.supplier || '—')}</td><td>${UI.escape(r.size || '—')}</td>
+        <td class="num"><span class="badge badge--${Number(r.on_hand) <= 0 ? 'bad' : 'warn'}">${UI.escape(r.on_hand)}</span></td>
+        <td class="num">${UI.escape(r.reorder)}</td>
+        <td class="actions"><button class="link-btn" data-id="${UI.escape(r.id)}">View</button></td>
+      </tr>`).join('')}</tbody></table>`;
+    t.querySelectorAll('[data-id]').forEach(b => b.onclick = () => Router.go('item-search'));
+  };
+  const apply = () => draw(!q ? rows : rows.filter(r => (r.name + ' ' + (r.upc || '') + ' ' + (r.brand || '') + ' ' + (r.category || '')).toLowerCase().indexOf(q) !== -1));
+  mount.querySelector('#ia-q').oninput = (e) => { q = e.target.value.trim().toLowerCase(); apply(); };
+  apply();
+});

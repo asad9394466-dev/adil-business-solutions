@@ -24,6 +24,7 @@ const itemsCfg = {
       options: [{ value: 'Inventory Item', label: 'Inventory Item' }, { value: 'Service', label: 'Service' }, { value: 'Non-Inventory', label: 'Non-Inventory' }] },
     { key: 'name',        label: 'Item Name / Number', required: true, wide: true, tab: 'General' },
     { key: 'sku',         label: 'UPC / Code (auto-assigned if left blank)', tab: 'General' },
+    { key: 'unique_id',   label: 'Unique ID (your own searchable code, optional)', tab: 'General' },
     { key: 'category_id', label: 'Category',  type: 'select', ref: 'Categories', tab: 'General' },
     { key: 'brand_id',    label: 'Brand',     type: 'select', ref: 'Brands', quickAdd: 'Brands', tab: 'General' },
     { key: 'supplier_id', label: 'Supplier',  type: 'select', ref: 'Suppliers', quickAdd: 'Suppliers', tab: 'General' },
@@ -103,7 +104,7 @@ Router.register('item-search', async (mount) => {
   const q = mount.querySelector('#is-q');
   const apply = () => {
     const s = q.value.trim().toLowerCase();
-    drawResults(!s ? items : items.filter(it => (it.name + ' ' + (it.sku || '')).toLowerCase().indexOf(s) !== -1));
+    drawResults(!s ? items : items.filter(it => (it.name + ' ' + (it.sku || '') + ' ' + (it.unique_id || '')).toLowerCase().indexOf(s) !== -1));
   };
   q.oninput = apply;
   apply();

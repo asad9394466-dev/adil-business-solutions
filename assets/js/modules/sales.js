@@ -382,11 +382,16 @@ const SalesEditor = {
       if (it) {
         desc.value = it.name; state.lines[i].description = it.name;
         if (it.regular_price !== '' && it.regular_price != null) { price.value = it.regular_price; state.lines[i].unit_price = it.regular_price; }
+        price.title = 'Cost: ' + UI.money(it.cost_price || 0);
       }
       setQtyHint(itemSel.value);
       recompute();
     };
-    if (state.lines[i].item_id) setQtyHint(state.lines[i].item_id);
+    if (state.lines[i].item_id) {
+      setQtyHint(state.lines[i].item_id);
+      const it0 = Sales.items.find(x => String(x.id) === String(state.lines[i].item_id));
+      if (it0) price.title = 'Cost: ' + UI.money(it0.cost_price || 0);
+    }
     desc.oninput = () => { state.lines[i].description = desc.value; };
     qty.oninput = () => { state.lines[i].qty = qty.value; recompute(); };
     price.oninput = () => { state.lines[i].unit_price = price.value; recompute(); };

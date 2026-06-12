@@ -372,7 +372,7 @@ async function adjustmentEditor(mount, id) {
     <div class="card no-pad">
       <div class="table-wrap"><table class="data-table line-table"><thead><tr>
         <th style="min-width:200px;">Item</th><th>Description</th><th class="num">Qty on hand</th>
-        <th class="num">New Qty</th><th class="num">New Value</th><th class="num">Value Diff.</th><th class="actions"></th>
+        <th class="num">Current Value</th><th class="num">New Qty</th><th class="num">New Value</th><th class="num">Value Diff.</th><th class="actions"></th>
       </tr></thead><tbody id="aj-lines"></tbody></table></div>
       <div class="line-add"><button class="btn" id="aj-add">+ Add line</button></div>
     </div>
@@ -391,13 +391,17 @@ async function adjustmentEditor(mount, id) {
       l.qty_diff = 0;
       const nv = parseFloat(l.new_value);
       l.value_diff = isNaN(nv) ? 0 : (nv - l.on_hand * l.cost);
+      l.new_cost = (!isNaN(nv) && l.on_hand > 0) ? nv / l.on_hand : '';
     } else if (type === 'Quantity and Value') {
       l.qty_diff = (l.new_qty === '' || l.new_qty == null) ? 0 : (Number(l.new_qty) - l.on_hand);
       const nv = parseFloat(l.new_value);
       l.value_diff = isNaN(nv) ? l.qty_diff * l.cost : (nv - l.on_hand * l.cost);
+      const finalQty = (l.new_qty === '' || l.new_qty == null) ? l.on_hand : Number(l.new_qty);
+      l.new_cost = (!isNaN(nv) && finalQty > 0) ? nv / finalQty : '';
     } else { // Quantity
       l.qty_diff = (l.new_qty === '' || l.new_qty == null) ? 0 : (Number(l.new_qty) - l.on_hand);
       l.value_diff = l.qty_diff * l.cost;
+      l.new_cost = '';
     }
   };
   const recompute = () => {
@@ -417,6 +421,7 @@ async function adjustmentEditor(mount, id) {
         <td><select class="aj-item">${opItemOptions(l.item_id)}</select></td>
         <td><input class="aj-d" value="${UI.escape(l.description || '')}"></td>
         <td class="num aj-onhand">${l.item_id ? l.on_hand : '—'}</td>
+        <td class="num aj-curval">${l.item_id ? UI.money(l.on_hand * l.cost) : '—'}</td>
         <td><input class="aj-nq num" type="number" step="any" value="${UI.escape(l.new_qty != null ? l.new_qty : '')}"${qtyMode ? '' : ' disabled'}></td>
         <td><input class="aj-nv num" type="number" step="0.01" value="${UI.escape(l.new_value != null ? l.new_value : '')}"${valueMode ? '' : ' disabled'}></td>
         <td class="num aj-vd">${UI.money(l.value_diff || 0)}</td>
@@ -426,15 +431,18 @@ async function adjustmentEditor(mount, id) {
       const i = Number(tr.dataset.i);
       const sel = tr.querySelector('.aj-item');
       const onhandCell = tr.querySelector('.aj-onhand');
+      const curvalCell = tr.querySelector('.aj-curval');
       const loadItem = async () => {
         const l = state.lines[i];
-        if (!l.item_id) { onhandCell.textContent = '—'; return; }
+        if (!l.item_id) { onhandCell.textContent = '—'; if (curvalCell) curvalCell.textContent = '—'; return; }
         l.cost = Operations.itemCost(l.item_id);
         onhandCell.textContent = '…';
         try { const r = await API.call('inventoryOnHand', { item_id: l.item_id }); l.on_hand = Number(r.on_hand || 0); }
         catch { l.on_hand = 0; }
         onhandCell.textContent = l.on_hand;
+        if (curvalCell) curvalCell.textContent = UI.money(l.on_hand * l.cost);
         if (qtyMode && (l.new_qty === '' || l.new_qty == null)) { l.new_qty = l.on_hand; tr.querySelector('.aj-nq').value = l.on_hand; }
+        if (state.adjustment_type !== 'Quantity' && (l.new_value === '' || l.new_value == null)) { l.new_value = (l.on_hand * l.cost).toFixed(2); tr.querySelector('.aj-nv').value = l.new_value; }
         recompute();
       };
       sel.onchange = () => {
@@ -470,7 +478,7 @@ async function adjustmentEditor(mount, id) {
       adjustment_type: state.adjustment_type, date: state.date, reference_no: state.reference_no,
       store_id: state.store_id, warehouse: state.warehouse, adjustment_account_id: state.adjustment_account_id,
       description: state.description,
-      lines: lines.map(l => ({ item_id: l.item_id, description: l.description, on_hand: l.on_hand, new_qty: Number(l.new_qty || l.on_hand || 0), qty_diff: Number(l.qty_diff || 0), cost: l.cost, value_diff: Number(l.value_diff || 0) }))
+      lines: lines.map(l => ({ item_id: l.item_id, description: l.description, on_hand: l.on_hand, new_qty: Number(l.new_qty || l.on_hand || 0), qty_diff: Number(l.qty_diff || 0), cost: l.cost, value_diff: Number(l.value_diff || 0), new_cost: l.new_cost }))
     };
     UI.loading(true, state.id ? 'Saving…' : 'Creating…');
     try { await API.call(state.id ? 'updateInventoryAdjustment' : 'saveInventoryAdjustment', state.id ? { id: state.id, data } : { data }); UI.loading(false); UI.toast(state.id ? 'Saved.' : 'Adjustment created.', 'success'); Router.go('inventory-adjustments'); }

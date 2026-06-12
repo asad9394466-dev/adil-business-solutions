@@ -28,7 +28,7 @@ var SCHEMA = {
   Stores:         ['id','store_name','region_id','description','ecommerce_eligibility','status','created_at'],
   Warehouses:     ['id','warehouse_name','description','status','created_at'],
   PriceLists:     ['id','list_date','list_type','list_image','status','created_at'],
-  Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at','item_type','supplier_id','cogs_account_id','income_account_id','asset_account_id','purchase_description','sale_description','size','attributes','max_order_qty','commission','opening_qty'],
+  Items:          ['id','sku','name','category_id','brand_id','uom_id','cost_price','regular_price','wholesale_price','tax_type_id','reorder_level','expiry_date','status','created_at','item_type','supplier_id','cogs_account_id','income_account_id','asset_account_id','purchase_description','sale_description','size','attributes','max_order_qty','commission','opening_qty','unique_id'],
   Customers:      ['id','name','phone','email','address','area','opening_balance','credit_limit','price_list','status','created_at','customer_code','customer_type','cnic','payment_day','representative_id','customer_care_manager','photo'],
   Suppliers:      ['id','name','phone','email','address','opening_balance','status','created_at','code'],
   PurchaseOrders:     ['id','po_no','date','supplier_id','store_id','description','reference_no','subtotal','discount','total','status','created_by','created_at'],
@@ -269,6 +269,10 @@ function handle_(e) {
       case 'recordDeposit': return out_({ ok: true, data: recordDeposit_(p) });
       case 'depositsList': return out_({ ok: true, data: depositsList_() });
       case 'paymentsList': return out_({ ok: true, data: paymentsList_() });
+      case 'paymentDetail': return out_({ ok: true, data: paymentDetail_(p.id) });
+      case 'deletePayment': return out_({ ok: true, data: deletePayment_(p) });
+      case 'depositDetail': return out_({ ok: true, data: depositDetail_(p.id) });
+      case 'deleteDeposit': return out_({ ok: true, data: deleteDeposit_(p) });
       case 'savePurchaseOrder': return out_({ ok: true, data: savePurchaseOrder_(p) });
       case 'purchaseOrderDetail': return out_({ ok: true, data: purchaseOrderDetail_(p.id) });
       case 'deletePurchaseOrder': return out_({ ok: true, data: deletePurchaseOrder_(p.id) });
@@ -1460,6 +1464,7 @@ function saveInventoryAdjustment_(p) {
     lines.forEach(function (l) {
       var qd = Number(l.qty_diff || 0);
       create_('InventoryAdjustmentItems', { adjustment_id: id, item_id: l.item_id, description: l.description || '', on_hand: Number(l.on_hand || 0), new_qty: Number(l.new_qty || 0), qty_diff: qd, cost: Number(l.cost || 0), value_diff: Number(l.value_diff || 0) });
+      if (l.new_cost != null && l.new_cost !== '' && Number(l.new_cost) > 0) update_('Items', l.item_id, { cost_price: Number(l.new_cost) });
       if (qd !== 0) create_('StockMovements', { date: date, item_id: l.item_id, type: qd > 0 ? 'in' : 'out', qty: Math.abs(qd), reference_type: 'adjustment', reference_id: id, notes: no });
     });
     if (Math.abs(totalValue) > 0.001 && d.adjustment_account_id) {
@@ -1869,4 +1874,48 @@ function reportGeneralLedger_(p) {
     out.push({ account: a.account_name, type: a.account_type, opening: s.opening, lines: s.lines, closing: s.closing });
   });
   return { from: f, to: t, accounts: out };
+}
+
+// =====================================================================
+//  PAYMENT / DEPOSIT — detail & delete (for View / Edit / Delete / Print)
+// =====================================================================
+function paymentDetail_(id) {
+  var pmt = rows_('Payments').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!pmt) throw new Error('Payment not found.');
+  return { payment: strip_(pmt), customer: pmt.customer_id ? get_('Customers', pmt.customer_id) : null, invoice: pmt.invoice_id ? get_('Invoices', pmt.invoice_id) : null };
+}
+function deletePayment_(p) {
+  var id = p.id;
+  var pmt = rows_('Payments').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!pmt) throw new Error('Payment not found.');
+  if (String(pmt.is_deposited) === '1') throw new Error('This payment is in a deposit. Delete the deposit first.');
+  var amt = Number(pmt.amount || 0), invId = pmt.invoice_id;
+  deleteWhere_('Payments', 'id', id);
+  if (invId) {
+    var inv = rows_('Invoices').filter(function (r) { return String(r.id) === String(invId); })[0];
+    if (inv) {
+      var paid = rows_('Payments').filter(function (r) { return String(r.invoice_id) === String(invId); }).reduce(function (s, r) { return s + Number(r.amount || 0); }, 0);
+      var t = Number(inv.total || 0);
+      update_('Invoices', invId, { paid: paid, balance: t - paid, status: paid >= t ? 'paid' : (paid > 0 ? 'partial' : 'unpaid') });
+    }
+  }
+  if (amt > 0) try { postEntry_({ date: dayKey_(pmt.date), memo: 'Reverse customer payment', source_type: 'payment_reversal', source_id: 'PMTR' + Date.now(), created_by: userFromToken_(p.token), lines: [{ account_id: acctId_('ar'), debit: amt, credit: 0 }, { account_id: acctId_('undeposited'), debit: 0, credit: amt }] }); } catch (e) {}
+  return { id: id, deleted: true };
+}
+function depositDetail_(id) {
+  var dep = rows_('Deposits').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!dep) throw new Error('Deposit not found.');
+  var custs = nameMap_('Customers');
+  var pays = rows_('Payments').filter(function (r) { return String(r.deposit_id) === String(id); }).map(function (r) { var o = strip_(r); o.customer = custs[String(r.customer_id)] || ''; return o; });
+  var acc = dep.account_id ? get_('Accounts', dep.account_id) : null;
+  return { deposit: strip_(dep), payments: pays, account: acc ? acc.account_name : '' };
+}
+function deleteDeposit_(p) {
+  var id = p.id;
+  var dep = rows_('Deposits').filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!dep) throw new Error('Deposit not found.');
+  rows_('Payments').forEach(function (r) { if (String(r.deposit_id) === String(id)) update_('Payments', r.id, { is_deposited: '', deposit_id: '' }); });
+  deleteWhere_('Deposits', 'id', id);
+  try { postEntry_({ date: dayKey_(dep.date), memo: 'Reverse deposit ' + dep.deposit_no, source_type: 'deposit_reversal', source_id: 'DEPR' + Date.now(), created_by: userFromToken_(p.token), lines: [{ account_id: acctId_('undeposited'), debit: Number(dep.total || 0), credit: 0 }, { account_id: dep.account_id, debit: 0, credit: Number(dep.total || 0) }] }); } catch (e) {}
+  return { id: id, deleted: true };
 }

@@ -215,6 +215,68 @@ Router.register('new-general-journal-entry', async (mount) => {
 /* ---------------------------------------------------------------------
    RECEIVE PAYMENTS  +  VIEW PAYMENTS
 --------------------------------------------------------------------- */
+function paymentTabs(active) {
+  const tabs = [['receive-payments', 'Receive Payment'], ['view-payments', 'View Payments'], ['show-undeposited-list', 'Record Deposit'], ['view-deposits', 'View Deposits']];
+  return `<div class="sub-tabs no-print">${tabs.map(([r, l]) => `<button class="sub-tab${r === active ? ' active' : ''}" data-r="${r}">${l}</button>`).join('')}</div>`;
+}
+function wireSubTabs(mount) { mount.querySelectorAll('.sub-tab[data-r]').forEach(b => b.onclick = () => Router.go(b.dataset.r)); }
+// "Customer Payments" groups the four screens; opening it shows Receive Payment.
+Router.register('customer-payments', (m, p) => Router.routes['receive-payments'](m, p));
+
+function acctModal(title, bodyHtml) {
+  const modal = UI.el(`<div class="modal-overlay"><div class="modal"><div class="modal-head"><h2>${UI.escape(title)}</h2><button class="icon-btn modal-close">✕</button></div><div class="modal-body">${bodyHtml}</div><div class="modal-foot"><button class="btn modal-close">Close</button></div></div></div>`);
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelectorAll('.modal-close').forEach(b => b.onclick = close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+}
+function printReceipt(title, innerHtml) {
+  const w = window.open('', '_blank', 'width=440,height=660');
+  if (!w) { UI.toast('Allow pop-ups to print.', 'error'); return; }
+  w.document.write(`<html><head><title>${UI.escape(title)}</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin-top:8px}td,th{padding:5px 6px;text-align:left}.num{text-align:right}h2{margin:0 0 2px}.muted{color:#666;font-size:12px}hr{border:none;border-top:1px solid #ddd;margin:10px 0}.tot td{border-top:1px solid #000;font-weight:700}</style></head><body>${innerHtml}<script>window.onload=function(){window.print()};<\/script></body></html>`);
+  w.document.close();
+}
+async function paymentView(id) {
+  try {
+    const d = await API.call('paymentDetail', { id });
+    acctModal('Payment', `<p><strong>${UI.escape(d.customer ? d.customer.name : '')}</strong></p>
+      <p class="muted">${UI.escape(UI.date(d.payment.date))} · ${UI.escape(d.payment.method || '')}${d.payment.reference ? ' · Ref ' + UI.escape(d.payment.reference) : ''}</p>
+      <table class="data-table"><tbody><tr><td>Invoice</td><td class="num">${UI.escape(d.invoice ? d.invoice.invoice_no : '—')}</td></tr>
+      <tr><td>Amount</td><td class="num">${UI.money(d.payment.amount)}</td></tr>
+      <tr><td>Status</td><td class="num">${d.payment.is_deposited ? 'Deposited' : 'Undeposited'}</td></tr></tbody></table>
+      ${d.payment.notes ? `<p class="muted">${UI.escape(d.payment.notes)}</p>` : ''}`);
+  } catch (e) { UI.toast(e.message, 'error'); }
+}
+async function paymentPrint(id) {
+  try {
+    const d = await API.call('paymentDetail', { id }), co = window.ABS_CONFIG.COMPANY;
+    printReceipt('Payment Receipt', `<h2>${UI.escape(co.name)}</h2><div class="muted">Payment Receipt</div><hr>
+      <p>Received from <strong>${UI.escape(d.customer ? d.customer.name : '')}</strong><br>
+      Date: ${UI.escape(UI.date(d.payment.date))}<br>Method: ${UI.escape(d.payment.method || '')}${d.payment.reference ? ' · Ref ' + UI.escape(d.payment.reference) : ''}<br>
+      Invoice: ${UI.escape(d.invoice ? d.invoice.invoice_no : '—')}</p>
+      <table><tr class="tot"><td>Amount Received</td><td class="num">${UI.money(d.payment.amount)}</td></tr></table>`);
+  } catch (e) { UI.toast(e.message, 'error'); }
+}
+async function depositView(id) {
+  try {
+    const d = await API.call('depositDetail', { id });
+    acctModal('Deposit ' + (d.deposit.deposit_no || ''), `<p class="muted">${UI.escape(UI.date(d.deposit.date))} · into ${UI.escape(d.account)}</p>
+      <table class="data-table"><thead><tr><th>Customer</th><th>Reference</th><th class="num">Amount</th></tr></thead>
+      <tbody>${d.payments.map(p => `<tr><td>${UI.escape(p.customer)}</td><td>${UI.escape(p.reference || '')}</td><td class="num">${UI.money(p.amount)}</td></tr>`).join('')}
+      <tr class="rpt-grand"><td colspan="2"><strong>Total</strong></td><td class="num"><strong>${UI.money(d.deposit.total)}</strong></td></tr></tbody></table>`);
+  } catch (e) { UI.toast(e.message, 'error'); }
+}
+async function depositPrint(id) {
+  try {
+    const d = await API.call('depositDetail', { id }), co = window.ABS_CONFIG.COMPANY;
+    printReceipt('Deposit Slip', `<h2>${UI.escape(co.name)}</h2><div class="muted">Deposit Slip ${UI.escape(d.deposit.deposit_no || '')}</div><hr>
+      <p>Date: ${UI.escape(UI.date(d.deposit.date))}<br>Deposited to: ${UI.escape(d.account)}</p>
+      <table><thead><tr><th>Customer</th><th class="num">Amount</th></tr></thead>
+      <tbody>${d.payments.map(p => `<tr><td>${UI.escape(p.customer)}</td><td class="num">${UI.money(p.amount)}</td></tr>`).join('')}
+      <tr class="tot"><td>Total</td><td class="num">${UI.money(d.deposit.total)}</td></tr></tbody></table>`);
+  } catch (e) { UI.toast(e.message, 'error'); }
+}
+
 Router.register('receive-payments', async (mount) => {
   UI.loading(true);
   let customers, invoices;
@@ -225,6 +287,7 @@ Router.register('receive-payments', async (mount) => {
   const methodOpts = PAY_METHODS.map(m => `<option>${m}</option>`).join('');
 
   mount.innerHTML = `
+    ${paymentTabs('receive-payments')}
     <div class="page-head"><h1>Receive Payment</h1></div>
     <div class="card"><div class="form-grid">
       <label class="field"><span class="field-label">Received From</span><select id="rp-cust">${custOpts}</select></label>
@@ -235,9 +298,11 @@ Router.register('receive-payments', async (mount) => {
     </div></div>
     <div class="card no-pad"><div class="table-wrap" id="rp-table"><div class="empty">${UI.icon('users')}<h3>Select a customer</h3><p>Their unpaid invoices will appear here.</p></div></div></div>
     <div class="totals-row"><div></div><div class="totals-box">
+      <div class="totals-line"><span>Lump sum (split equally)</span><span><input id="rp-lump" class="mini-input" type="number" step="0.01" placeholder="0.00"><button class="btn" id="rp-split" style="margin-left:6px">Split</button></span></div>
       <div class="totals-line totals-grand"><span>Total Received</span><span id="rp-total" class="num">0.00</span></div>
       <div class="line-add" style="border:none;padding:8px 0 0;"><button class="btn btn--primary btn--block" id="rp-save">Receive Payment</button></div>
     </div></div>`;
+  wireSubTabs(mount);
 
   const tableEl = mount.querySelector('#rp-table');
   let rows = [];
@@ -255,10 +320,35 @@ Router.register('receive-payments', async (mount) => {
       </tr></thead><tbody>${rows.map(inv => `<tr>
         <td>${UI.escape(UI.date(inv.date))}</td><td>${UI.escape(inv.invoice_no)}</td>
         <td class="num">${UI.money(inv.total)}</td><td class="num">${UI.money(inv.paid)}</td><td class="num">${UI.money(inv.balance)}</td>
-        <td><input class="rp-amt num" data-inv="${UI.escape(inv.id)}" type="number" step="0.01" value="${UI.escape(inv.balance)}"></td>
+        <td><input class="rp-amt num" data-inv="${UI.escape(inv.id)}" data-bal="${UI.escape(inv.balance)}" type="number" step="0.01" value="${UI.escape(inv.balance)}"></td>
       </tr>`).join('')}</tbody></table>`;
     tableEl.querySelectorAll('.rp-amt').forEach(inp => inp.oninput = recompute);
     recompute();
+  };
+
+  mount.querySelector('#rp-split').onclick = () => {
+    const lump = Number(mount.querySelector('#rp-lump').value || 0);
+    const inputs = Array.from(tableEl.querySelectorAll('.rp-amt'));
+    if (lump <= 0) { UI.toast('Enter a lump sum amount first.', 'error'); return; }
+    if (!inputs.length) { UI.toast('Select a customer with unpaid invoices.', 'error'); return; }
+    const bals = inputs.map(inp => Number(inp.dataset.bal || 0));
+    const alloc = inputs.map(() => 0);
+    let remaining = lump, active = inputs.map((_, i) => i);
+    while (remaining > 0.005 && active.length) {
+      const share = remaining / active.length;
+      let progressed = false; const next = [];
+      active.forEach(i => {
+        const room = bals[i] - alloc[i];
+        const give = Math.min(share, room);
+        alloc[i] += give; remaining -= give;
+        if (bals[i] - alloc[i] > 0.005) next.push(i);
+        if (give > 0.0001) progressed = true;
+      });
+      active = next; if (!progressed) break;
+    }
+    inputs.forEach((inp, i) => inp.value = alloc[i].toFixed(2));
+    recompute();
+    if (remaining > 0.5) UI.toast(`Note: ${UI.money(remaining)} exceeds the total due and was not allocated.`, 'info');
   };
 
   mount.querySelector('#rp-save').onclick = async () => {
@@ -281,15 +371,37 @@ Router.register('view-payments', async (mount) => {
   try { pays = await API.call('paymentsList'); } catch (e) { UI.loading(false); acctErr(mount, 'payments', e.message); return; }
   UI.loading(false);
   mount.innerHTML = `
+    ${paymentTabs('view-payments')}
     <div class="page-head"><h1>View Payments</h1><span class="page-sub">${pays.length}</span>
       <div class="page-actions"><button class="btn btn--primary" onclick="location.hash='#receive-payments'">Receive Payment</button></div></div>
     <div class="card no-pad"><div class="table-wrap">${pays.length ? `<table class="data-table"><thead><tr>
-      <th>Date</th><th>Reference</th><th>Customer</th><th>Method</th><th class="num">Amount</th><th>Deposited</th>
+      <th>Date</th><th>Reference</th><th>Customer</th><th>Method</th><th class="num">Amount</th><th>Deposited</th><th class="actions"></th>
       </tr></thead><tbody>${pays.map(p => `<tr>
         <td>${UI.escape(UI.date(p.date))}</td><td>${UI.escape(p.reference || '')}</td><td>${UI.escape(p.customer)}</td>
         <td>${UI.escape(p.method || '')}</td><td class="num">${UI.money(p.amount)}</td>
         <td>${p.is_deposited ? '<span class="badge badge--ok">Deposited</span>' : '<span class="badge badge--warn">Undeposited</span>'}</td>
+        <td class="actions">
+          <button class="link-btn" data-view="${UI.escape(p.id)}">View</button>
+          <button class="link-btn" data-edit="${UI.escape(p.id)}">Edit</button>
+          <button class="link-btn" data-print="${UI.escape(p.id)}">Print</button>
+          <button class="link-btn link-btn--danger" data-del="${UI.escape(p.id)}">Delete</button>
+        </td>
       </tr>`).join('')}</tbody></table>` : `<div class="empty">${UI.icon('file-text')}<h3>No payments yet</h3></div>`}</div></div>`;
+  wireSubTabs(mount);
+  mount.querySelectorAll('[data-view]').forEach(b => b.onclick = () => paymentView(b.dataset.view));
+  mount.querySelectorAll('[data-print]').forEach(b => b.onclick = () => paymentPrint(b.dataset.print));
+  mount.querySelectorAll('[data-edit]').forEach(b => b.onclick = async () => {
+    if (!confirm('Editing removes this payment so you can re-enter it correctly. Continue?')) return;
+    UI.loading(true, 'Removing…');
+    try { await API.call('deletePayment', { id: b.dataset.edit }); UI.loading(false); UI.toast('Removed — please re-enter the payment.', 'success'); Router.go('receive-payments'); }
+    catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+  });
+  mount.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this payment? Its ledger posting will be reversed and the invoice balance restored.')) return;
+    UI.loading(true, 'Deleting…');
+    try { await API.call('deletePayment', { id: b.dataset.del }); UI.loading(false); UI.toast('Payment deleted.', 'success'); Router.resolve(); }
+    catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+  });
 });
 
 /* ---------------------------------------------------------------------
@@ -303,10 +415,12 @@ Router.register('show-undeposited-list', async (mount) => {
   const bankOpts = Accounts.list.filter(a => a.account_type === 'Bank').map(a => `<option value="${UI.escape(a.id)}">${UI.escape(a.account_name)}</option>`).join('');
 
   if (!undeposited.length) {
-    mount.innerHTML = `<div class="page-head"><h1>Payments to Deposit</h1></div><div class="card"><div class="empty">${UI.icon('check')}<h3>No payments to deposit</h3><p>Recorded customer payments awaiting deposit appear here.</p></div></div>`;
+    mount.innerHTML = `${paymentTabs('show-undeposited-list')}<div class="page-head"><h1>Payments to Deposit</h1></div><div class="card"><div class="empty">${UI.icon('check')}<h3>No payments to deposit</h3><p>Recorded customer payments awaiting deposit appear here.</p></div></div>`;
+    wireSubTabs(mount);
     return;
   }
   mount.innerHTML = `
+    ${paymentTabs('show-undeposited-list')}
     <div class="page-head"><h1>Payments to Deposit</h1></div>
     <div class="card"><div class="form-grid">
       <label class="field"><span class="field-label">Deposit To</span><select id="dp-acct">${bankOpts}</select></label>
@@ -329,6 +443,7 @@ Router.register('show-undeposited-list', async (mount) => {
     mount.querySelector('#dp-total').textContent = UI.money(t);
   };
   mount.querySelectorAll('.dp-line').forEach(c => c.onchange = recompute);
+  wireSubTabs(mount);
   mount.querySelector('#dp-all').onchange = (e) => { mount.querySelectorAll('.dp-line').forEach(c => c.checked = e.target.checked); recompute(); };
   mount.querySelector('#dp-save').onclick = async () => {
     const ids = Array.from(mount.querySelectorAll('.dp-line:checked')).map(c => c.dataset.id);
@@ -347,12 +462,34 @@ Router.register('view-deposits', async (mount) => {
   try { deps = await API.call('depositsList'); } catch (e) { UI.loading(false); acctErr(mount, 'deposits', e.message); return; }
   UI.loading(false);
   mount.innerHTML = `
+    ${paymentTabs('view-deposits')}
     <div class="page-head"><h1>View Deposits</h1><span class="page-sub">${deps.length}</span></div>
     <div class="card no-pad"><div class="table-wrap">${deps.length ? `<table class="data-table"><thead><tr>
-      <th>Date</th><th>Deposit No.</th><th>Deposited To</th><th>Memo</th><th class="num">Amount</th>
+      <th>Date</th><th>Deposit No.</th><th>Deposited To</th><th>Memo</th><th class="num">Amount</th><th class="actions"></th>
       </tr></thead><tbody>${deps.map(d => `<tr>
         <td>${UI.escape(UI.date(d.date))}</td><td>${UI.escape(d.deposit_no)}</td><td>${UI.escape(d.account_name)}</td><td>${UI.escape(d.memo || '')}</td><td class="num">${UI.money(d.total)}</td>
+        <td class="actions">
+          <button class="link-btn" data-view="${UI.escape(d.id)}">View</button>
+          <button class="link-btn" data-edit="${UI.escape(d.id)}">Edit</button>
+          <button class="link-btn" data-print="${UI.escape(d.id)}">Print</button>
+          <button class="link-btn link-btn--danger" data-del="${UI.escape(d.id)}">Delete</button>
+        </td>
       </tr>`).join('')}</tbody></table>` : `<div class="empty">${UI.icon('file-text')}<h3>No deposits yet</h3></div>`}</div></div>`;
+  wireSubTabs(mount);
+  mount.querySelectorAll('[data-view]').forEach(b => b.onclick = () => depositView(b.dataset.view));
+  mount.querySelectorAll('[data-print]').forEach(b => b.onclick = () => depositPrint(b.dataset.print));
+  mount.querySelectorAll('[data-edit]').forEach(b => b.onclick = async () => {
+    if (!confirm('Editing removes this deposit (returning its payments to undeposited) so you can redo it. Continue?')) return;
+    UI.loading(true, 'Removing…');
+    try { await API.call('deleteDeposit', { id: b.dataset.edit }); UI.loading(false); UI.toast('Removed — re-create the deposit.', 'success'); Router.go('show-undeposited-list'); }
+    catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+  });
+  mount.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this deposit? Its payments return to undeposited and the ledger posting is reversed.')) return;
+    UI.loading(true, 'Deleting…');
+    try { await API.call('deleteDeposit', { id: b.dataset.del }); UI.loading(false); UI.toast('Deposit deleted.', 'success'); Router.resolve(); }
+    catch (e) { UI.loading(false); UI.toast(e.message, 'error'); }
+  });
 });
 
 /* ---------------------------------------------------------------------
